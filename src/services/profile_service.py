@@ -62,6 +62,7 @@ class SeniorProfileService:
         first_name: str,
         last_name: str,
         phone_number: str,
+        email: str,
         date_of_birth: Optional[str] = None,
         emergency_contact_name: Optional[str] = None,
         emergency_contact_phone: Optional[str] = None,
@@ -78,6 +79,7 @@ class SeniorProfileService:
             first_name: Senior's first name
             last_name: Senior's last name
             phone_number: Primary phone number
+            email: Email address (MANDATORY)
             date_of_birth: Date of birth (YYYY-MM-DD)
             emergency_contact_name: Emergency contact name
             emergency_contact_phone: Emergency contact phone
@@ -102,6 +104,7 @@ class SeniorProfileService:
             "lastName": last_name,
             "fullName": f"{first_name} {last_name}",
             "phoneNumber": phone_number,
+            "email": email,  # MANDATORY field
             "dateOfBirth": date_of_birth,
             "age": self._calculate_age(date_of_birth) if date_of_birth else None,
             "emergencyContact": {

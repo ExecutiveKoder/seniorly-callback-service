@@ -79,6 +79,13 @@ def add_senior(service: SeniorProfileService):
     first_name = input("\nFirst Name: ").strip()
     last_name = input("Last Name: ").strip()
     phone_number = input("Phone Number (e.g., +1-555-123-4567): ").strip()
+    email = input("Email Address (MANDATORY): ").strip()
+
+    # Validate email
+    if not email or '@' not in email:
+        print("\n❌ Valid email address is required!")
+        return
+
     date_of_birth = input("Date of Birth (YYYY-MM-DD, or press Enter to skip): ").strip() or None
 
     print("\n--- Emergency Contact ---")
@@ -103,6 +110,7 @@ def add_senior(service: SeniorProfileService):
             first_name=first_name,
             last_name=last_name,
             phone_number=phone_number,
+            email=email,
             date_of_birth=date_of_birth,
             emergency_contact_name=emergency_contact_name,
             emergency_contact_phone=emergency_contact_phone,
@@ -115,6 +123,7 @@ def add_senior(service: SeniorProfileService):
         print(f"\n✅ Senior profile created successfully!")
         print(f"📝 Senior ID: {senior_id}")
         print(f"👤 Name: {first_name} {last_name}")
+        print(f"📧 Email: {email}")
         print(f"📞 Phone: {phone_number}")
 
     except Exception as e:
@@ -140,6 +149,7 @@ def view_senior(service: SeniorProfileService):
     print("="*60)
     print(f"Senior ID: {profile['seniorId']}")
     print(f"Name: {profile['fullName']}")
+    print(f"Email: {profile.get('email', 'N/A')}")
     print(f"Phone: {profile['phoneNumber']}")
     print(f"Date of Birth: {profile.get('dateOfBirth', 'N/A')}")
     print(f"Age: {profile.get('age', 'N/A')}")
@@ -230,30 +240,37 @@ def update_senior(service: SeniorProfileService):
 
     print(f"\nUpdating profile for: {profile['fullName']}")
     print("\nWhat would you like to update?")
-    print("1. Phone Number")
-    print("2. Emergency Contact")
-    print("3. Status (active/inactive)")
-    print("4. Notes")
-    print("5. Cancel")
+    print("1. Email Address")
+    print("2. Phone Number")
+    print("3. Emergency Contact")
+    print("4. Status (active/inactive)")
+    print("5. Notes")
+    print("6. Cancel")
 
-    choice = input("\nSelect (1-5): ").strip()
+    choice = input("\nSelect (1-6): ").strip()
 
     updates = {}
 
     if choice == '1':
+        new_email = input("New email address: ").strip()
+        if '@' not in new_email:
+            print("❌ Invalid email address")
+            return
+        updates["email"] = new_email
+    elif choice == '2':
         new_phone = input("New phone number: ").strip()
         updates["phoneNumber"] = new_phone
-    elif choice == '2':
+    elif choice == '3':
         ec_name = input("Emergency Contact Name: ").strip()
         ec_phone = input("Emergency Contact Phone: ").strip()
         updates["emergencyContact"] = {"name": ec_name, "phone": ec_phone}
-    elif choice == '3':
+    elif choice == '4':
         new_status = input("New status (active/inactive/discharged): ").strip()
         updates["status"] = new_status
-    elif choice == '4':
+    elif choice == '5':
         new_notes = input("Notes: ").strip()
         updates["notes"] = new_notes
-    elif choice == '5':
+    elif choice == '6':
         print("Update cancelled.")
         return
     else:

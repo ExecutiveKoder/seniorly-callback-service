@@ -221,7 +221,7 @@ Please answer the user's question using the context provided above. If the conte
 
     def get_conversation_summary(self) -> str:
         """
-        Get a summary of the current conversation
+        Get a summary of the current conversation (simple truncated version)
 
         Returns:
             Summary text
@@ -236,6 +236,70 @@ Please answer the user's question using the context provided above. If the conte
             summary += f"{i}. {role}: {content}\n"
 
         return summary
+
+    def generate_call_summary(self) -> str:
+        """
+        Generate an AI-powered summary of the call for context in future calls
+
+        Returns:
+            AI-generated summary suitable for use in next call's context
+        """
+        if not self.conversation_history:
+            return "No conversation occurred"
+
+        # Filter out system messages for summary
+        user_messages = [msg for msg in self.conversation_history if msg['role'] in ['user', 'assistant']]
+
+        if len(user_messages) < 2:
+            return "Brief call, no significant content to summarize"
+
+        # Build conversation transcript for summarization
+        transcript = "\n".join([
+            f"{'Senior' if msg['role'] == 'user' else 'AI'}: {msg['content']}"
+            for msg in user_messages
+        ])
+
+        summary_prompt = f"""You are summarizing a wellness check-in call with a senior for medical record purposes.
+
+Review this conversation and create a COMPREHENSIVE, DETAILED summary (1-2 paragraphs) that will be useful for the NEXT call and for tracking the senior's health over time.
+
+Include ALL relevant details about:
+- Physical health: Any pain, symptoms, discomfort, sleep quality, energy levels, appetite
+- Medications: What they're taking, adherence, any side effects mentioned
+- Mental/Emotional state: Mood, affect, signs of depression/anxiety, social engagement
+- Daily activities: What they did, mobility, independence level
+- Social connections: Family visits, phone calls, social activities
+- Upcoming events: Doctor appointments, family visits, plans
+- Concerns expressed: Worries, fears, questions they had
+- Cognitive observations: Memory, orientation, coherence of responses
+- Any red flags or items requiring follow-up
+
+Write as if you're a healthcare provider documenting the encounter. Be specific and detailed.
+
+Conversation:
+{transcript}
+
+Detailed Summary:"""
+
+        try:
+            # Use a simple completion to generate summary
+            response = self.client.chat.completions.create(
+                model=self.deployment_name,
+                messages=[
+                    {"role": "system", "content": "You are a healthcare provider creating detailed clinical summaries of senior wellness check-in calls for continuity of care."},
+                    {"role": "user", "content": summary_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=500
+            )
+
+            summary = response.choices[0].message.content.strip()
+            logger.info(f"Generated call summary: {summary[:100]}...")
+            return summary
+
+        except Exception as e:
+            logger.error(f"Error generating call summary: {e}")
+            return f"Call completed with {len(user_messages)} exchanges"
 
     def save_conversation(self) -> List[Dict[str, str]]:
         """

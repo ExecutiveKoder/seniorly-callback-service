@@ -143,10 +143,12 @@ class SeniorHealthAgent:
             # Create session in Cosmos DB
             self.data.cosmos.create_session(self.current_session_id)
 
-            # Store session state in Redis
+            # Store session state in Redis with senior name, AI name, and company
             session_state = {
                 "session_id": self.current_session_id,
                 "senior_name": senior_name or "Unknown",
+                "ai_name": config.get_ai_name(),
+                "company_name": "Seniorly",
                 "start_time": datetime.utcnow().isoformat(),
                 "status": "active"
             }
@@ -239,18 +241,31 @@ class SeniorHealthAgent:
 
             print(f"   Previous calls: {len(sessions)}")
 
-            # Build context summary
+            # Build context summary - EMPHASIZE MOST RECENT CALL
             context_parts = [
-                f"PREVIOUS CALL HISTORY for {profile['fullName']}:",
-                f"Total previous calls: {profile['callHistory']['totalCalls']}",
-                f"Last call: {profile['callSchedule'].get('lastCallDate', 'Unknown')}"
+                f"CONTEXT FROM PREVIOUS CALLS:"
             ]
 
-            # Add recent session summaries
-            for i, session in enumerate(sessions, 1):
-                context_parts.append(f"\nCall {i} ({session['date'][:10]}):")
-                if session.get('summary'):
-                    context_parts.append(f"  {session['summary']}")
+            # Add most recent call with emphasis
+            if sessions:
+                last_session = sessions[-1]
+                if last_session.get('summary'):
+                    context_parts.append(f"\n🔵 LAST CALL ({last_session['date'][:10]}):")
+                    context_parts.append(f"{last_session['summary']}")
+                    context_parts.append(f"\n⚠️ CRITICAL INSTRUCTIONS FOR THIS CALL:")
+                    context_parts.append(f"   - Naturally reference relevant information from the last call summary above")
+                    context_parts.append(f"   - If they mentioned health issues, ask how they're doing now")
+                    context_parts.append(f"   - If they had upcoming appointments/events, ask how they went")
+                    context_parts.append(f"   - Show continuity of care by remembering what they shared")
+                    context_parts.append(f"   - Do NOT repeat the same questions if they were already answered last time")
+                    context_parts.append(f"   - Build on the previous conversation naturally")
+
+            # Add older sessions if available
+            if len(sessions) > 1:
+                context_parts.append(f"\nPrevious calls: {profile['callHistory']['totalCalls']} total")
+                for i, session in enumerate(sessions[:-1], 1):  # Exclude the last one (already shown)
+                    if session.get('summary'):
+                        context_parts.append(f"  • {session['date'][:10]}: {session['summary']}")
 
             # Add medical info if available
             conditions = profile['medicalInformation'].get('conditions', [])
@@ -457,28 +472,29 @@ class SeniorHealthAgent:
             print("   Falling back to simulation mode...")
             phone_number = "289-324-2125"
 
-        # Load senior context automatically by phone number
-        context_loaded = self._load_senior_context(phone_number)
-
-        # Get senior name from loaded profile OR ask for it
+        # ALWAYS look up senior name from database first (regardless of call history)
         senior_name = None
-        if context_loaded:
-            try:
-                from src.services.profile_service import SeniorProfileService
-                profile_service = SeniorProfileService(
-                    endpoint=config.AZURE_COSMOS_ENDPOINT,
-                    key=config.AZURE_COSMOS_KEY,
-                    database_name=config.COSMOS_DATABASE
-                )
-                print(f"🔍 Looking up profile for phone: {phone_number}")
-                profile = profile_service.get_senior_by_phone(phone_number)
-                if profile:
-                    senior_name = profile['fullName']
-                    print(f"✅ Found profile: {senior_name}")
-                else:
-                    print(f"⚠️  No profile found for {phone_number}")
-            except Exception as e:
-                print(f"❌ Could not get senior name: {e}")
+        try:
+            from src.services.profile_service import SeniorProfileService
+            profile_service = SeniorProfileService(
+                endpoint=config.AZURE_COSMOS_ENDPOINT,
+                key=config.AZURE_COSMOS_KEY,
+                database_name=config.COSMOS_DATABASE
+            )
+            print(f"🔍 Looking up profile for phone: {phone_number}")
+            profile = profile_service.get_senior_by_phone(phone_number)
+            if profile:
+                full_name = profile['fullName']
+                # Extract only the first name
+                senior_name = full_name.split()[0] if full_name else None
+                print(f"✅ Found profile: {full_name} (using first name: {senior_name})")
+            else:
+                print(f"⚠️  No profile found for {phone_number}")
+        except Exception as e:
+            print(f"❌ Could not get senior name: {e}")
+
+        # Load senior context (call history) if available
+        context_loaded = self._load_senior_context(phone_number)
 
         # Start session with name if available (from phone lookup)
         self.start_new_session(senior_name or None)
@@ -493,10 +509,16 @@ class SeniorHealthAgent:
         # Get AI name from voice configuration
         ai_name = config.get_ai_name()
 
-        # Update system prompt with senior's name for personalized responses
+        # Update system prompt with senior's name - REPLACE placeholders in the prompt
         if senior_name:
-            personalized_prompt = f"{SENIOR_HEALTH_SYSTEM_PROMPT}\n\nIMPORTANT: You are speaking with {senior_name}. Use their name naturally throughout the conversation."
+            # Replace [Name] placeholder with actual senior name and [Your AI Name] with actual AI name
+            personalized_prompt = SENIOR_HEALTH_SYSTEM_PROMPT.replace("[Name]", senior_name).replace("[Your AI Name]", ai_name)
+            personalized_prompt += f"\n\nREMINDER: The senior's name is {senior_name}. Always use their actual name, never use placeholders like [Name]."
             self.openai.set_system_prompt(personalized_prompt)
+        else:
+            # If no name, remove placeholders entirely
+            generic_prompt = SENIOR_HEALTH_SYSTEM_PROMPT.replace("[Name]", "them").replace("[Your AI Name]", ai_name)
+            self.openai.set_system_prompt(generic_prompt)
 
         # Initial greeting (personalized if context loaded)
         if context_loaded and senior_name:
@@ -515,12 +537,13 @@ class SeniorHealthAgent:
 
         self.save_message("assistant", greeting)
 
-        # Identity verification step
-        if context_loaded:
-            verification_passed = self._perform_identity_verification(phone_number)
-            if not verification_passed:
-                print("\n🚫 Identity verification failed. Ending call for security.")
-                return
+        # Identity verification step (DISABLED FOR NOW)
+        # if context_loaded:
+        #     verification_passed = self._perform_identity_verification(phone_number)
+        #     if not verification_passed:
+        #         print("\n🚫 Identity verification failed. Ending call for security.")
+        #         return
+        print("   ℹ️  Identity verification disabled - skipping for now\n")
 
         # Conversation loop with time management
         ai_name = config.get_ai_name()  # Get AI name for conversation loop
@@ -677,6 +700,35 @@ class SeniorHealthAgent:
         print(f"   Session ID: {self.current_session_id}")
         print(f"   Total turns: {turn_count}")
         print("="*60 + "\n")
+
+        # Generate AI summary of the call for next time
+        print("📝 Generating call summary...")
+        try:
+            call_summary = self.openai.generate_call_summary()
+            print(f"✅ Summary: {call_summary}\n")
+
+            # Save summary to Cosmos DB in the senior's profile
+            if phone_number and senior_name:
+                from src.services.profile_service import SeniorProfileService
+                profile_service = SeniorProfileService(
+                    endpoint=config.AZURE_COSMOS_ENDPOINT,
+                    key=config.AZURE_COSMOS_KEY,
+                    database_name=config.COSMOS_DATABASE
+                )
+                profile = profile_service.get_senior_by_phone(phone_number)
+                if profile:
+                    senior_id = profile['seniorId']
+                    # Add call record with summary
+                    call_metadata = {
+                        "duration": (datetime.now() - conversation_start_time).total_seconds(),
+                        "completed": True,
+                        "summary": call_summary
+                    }
+                    profile_service.add_call_record(senior_id, self.current_session_id, call_metadata)
+                    print(f"✅ Call summary saved to profile\n")
+
+        except Exception as e:
+            print(f"⚠️  Could not generate/save summary: {e}\n")
 
         # Display cost summary
         if self.cost_tracker:
