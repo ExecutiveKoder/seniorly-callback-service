@@ -1,0 +1,74 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "start-media-streaming",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 20,
+      "y": 20
+    },
+    "snapToGrid": false,
+    "name": "Seniorly Streaming Voice Agent",
+    "description": "Starts media streaming to Kinesis for real-time Azure Speech processing",
+    "type": "contactFlow",
+    "status": "published",
+    "ActionMetadata": {
+      "start-media-streaming": {
+        "position": {
+          "x": 200,
+          "y": 100
+        }
+      },
+      "wait-for-stream": {
+        "position": {
+          "x": 450,
+          "y": 100
+        }
+      },
+      "disconnect": {
+        "position": {
+          "x": 700,
+          "y": 100
+        }
+      }
+    }
+  },
+  "Actions": [
+    {
+      "Identifier": "start-media-streaming",
+      "Type": "StartMediaStreaming",
+      "Parameters": {
+        "Track": "FROM_CUSTOMER",
+        "Attributes": {
+          "senior_name": "$.Attributes.senior_name",
+          "ai_name": "$.Attributes.ai_name"
+        }
+      },
+      "Transitions": {
+        "NextAction": "wait-for-stream",
+        "Errors": [{
+          "NextAction": "disconnect",
+          "ErrorType": "NoMatchingError"
+        }],
+        "Conditions": []
+      }
+    },
+    {
+      "Identifier": "wait-for-stream",
+      "Type": "Wait",
+      "Parameters": {
+        "TimeLimitSeconds": "300"
+      },
+      "Transitions": {
+        "NextAction": "disconnect",
+        "Errors": [],
+        "Conditions": []
+      }
+    },
+    {
+      "Identifier": "disconnect",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

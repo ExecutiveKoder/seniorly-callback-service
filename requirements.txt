@@ -1,23 +1,23 @@
 # Azure SDK packages
-azure-cognitiveservices-speech==1.38.0
-azure-ai-inference==1.0.0b3
-openai==1.54.0
-azure-cosmos==4.7.0
-azure-search-documents==11.6.0b5
-redis==5.0.8
+azure-cognitiveservices-speech==1.46.0
+openai==2.6.1
+azure-cosmos==4.14.0
+azure-search-documents==11.6.0
+redis==7.0.1
 
-# Web framework (for future webhooks)
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
+# Web framework for webhooks
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
 
 # Utilities
-python-dotenv==1.0.1
-pydantic==2.9.2
-pydantic-settings==2.5.2
+python-dotenv==1.2.1
+pydantic==2.12.3
+pydantic-settings==2.7.0
 
 # AWS SDK for Connect
 boto3==1.35.0
 
-# Audio processing for local testing
-pyaudio==0.2.14
-wave==0.0.2
+# Audio processing
+av==16.0.1
+soundfile==0.13.1
+numpy==2.3.4
