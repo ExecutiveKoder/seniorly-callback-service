@@ -460,7 +460,7 @@ class SeniorHealthAgent:
         # Load senior context automatically by phone number
         context_loaded = self._load_senior_context(phone_number)
 
-        # Get senior name from loaded profile
+        # Get senior name from loaded profile OR ask for it
         senior_name = None
         if context_loaded:
             try:
@@ -475,6 +475,10 @@ class SeniorHealthAgent:
                     senior_name = profile['fullName']
             except Exception as e:
                 print(f"Could not get senior name: {e}")
+
+        # If no name from profile, ask for it
+        if not senior_name:
+            senior_name = input("Enter your name: ").strip() or None
 
         self.start_new_session(senior_name or None)
 
