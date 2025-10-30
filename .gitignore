@@ -2,6 +2,12 @@
 .env
 .env.local
 .env.*.local
+backend/.env
+backend/.env.local
+
+# Exports and generated data
+backend/exports/
+backend/database/*.db
 
 # Python
 __pycache__/
@@ -65,3 +71,16 @@ htmlcov/
 # Docker
 *.dockerignore
 Dockerfile.local
+
+# Next.js / Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env
+frontend/.env*.local
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock

@@ -550,57 +550,50 @@ class SeniorHealthAgent:
         #         return
         print("   ℹ️  Identity verification disabled - skipping for now\n")
 
-        # Conversation loop with time management
+        # Conversation loop with STRICT 5-minute time management
         ai_name = config.get_ai_name()  # Get AI name for conversation loop
         turn_count = 0
         conversation_start_time = datetime.now()
-        time_warnings_given = {'3min': False, '4min': False}
+        time_warnings_given = {'4min30sec': False}
 
         while True:
             turn_count += 1
             print(f"\n--- Turn {turn_count} ---")
 
-            # Check call duration and give gentle time reminders
+            # Check call duration with STRICT enforcement
             elapsed_time = datetime.now() - conversation_start_time
-            elapsed_minutes = elapsed_time.total_seconds() / 60
+            elapsed_seconds = elapsed_time.total_seconds()
+            elapsed_minutes = elapsed_seconds / 60
 
-            # 3-minute gentle reminder
-            if elapsed_minutes >= 3.0 and not time_warnings_given['3min']:
-                time_warnings_given['3min'] = True
-                # Add subtle time awareness to AI's next response
-                self.openai.conversation_history.append({
-                    "role": "system",
-                    "content": f"GENTLE TIME REMINDER: You've been talking for about 3 minutes. Start naturally wrapping up the conversation in the next few exchanges. Ask if there's anything else important they want to share, but don't rush them."
-                })
+            # 4 minutes 30 seconds warning (user requirement)
+            if elapsed_seconds >= 270 and not time_warnings_given['4min30sec']:
+                time_warnings_given['4min30sec'] = True
+                warning_message = f"We have about 30 seconds left on our call. Is there anything urgent you need to mention?"
+                print(f"\n⚠️  4:30 warning")
+                print(f"🤖 {ai_name}: {warning_message}")
+                self.speech.synthesize_to_speaker(warning_message)
 
-            # 4-minute more direct reminder
-            elif elapsed_minutes >= 4.0 and not time_warnings_given['4min']:
-                time_warnings_given['4min'] = True
-                gentle_wrap_up = f"I want to make sure I'm not keeping you too long, {senior_name if senior_name else ''}. Is there anything else important you'd like to share with me today?"
-                print(f"\n🤖 {ai_name}: {gentle_wrap_up}")
-                self.speech.synthesize_to_speaker(gentle_wrap_up)
-
-                # Track wrap up message speech synthesis
+                # Track warning message
                 if self.cost_tracker:
-                    self.cost_tracker.track_speech_synthesis(gentle_wrap_up)
+                    self.cost_tracker.track_speech_synthesis(warning_message)
 
-                self.save_message("assistant", gentle_wrap_up)
+                self.save_message("assistant", warning_message)
 
-            # 5-minute hard limit
-            elif elapsed_minutes >= 5.0:
-                final_wrap_up = f"Thank you so much for our chat today, {senior_name if senior_name else ''}. I want to be respectful of your time. Take care, and I'll talk with you again soon!"
-                print(f"\n⏰ 5-minute limit reached")
-                print(f"🤖 {ai_name}: {final_wrap_up}")
-                self.speech.synthesize_to_speaker(final_wrap_up)
+            # 5-minute HARD LIMIT (user requirement: strict enforcement)
+            elif elapsed_seconds >= 300:
+                final_message = f"Our time is up for today. We can continue tomorrow. Take care, {senior_name if senior_name else ''}!"
+                print(f"\n🛑 5-MINUTE HARD LIMIT REACHED")
+                print(f"🤖 {ai_name}: {final_message}")
+                self.speech.synthesize_to_speaker(final_message)
 
-                # Track final wrap up speech synthesis
+                # Track final message
                 if self.cost_tracker:
-                    self.cost_tracker.track_speech_synthesis(final_wrap_up)
+                    self.cost_tracker.track_speech_synthesis(final_message)
 
-                self.save_message("assistant", final_wrap_up)
+                self.save_message("assistant", final_message)
                 break
 
-            print(f"⏱️  Call time: {elapsed_minutes:.1f} minutes")
+            print(f"⏱️  Call time: {int(elapsed_seconds)}s ({elapsed_minutes:.1f} min)")
 
             # Get user input via speech recognition
             user_text = self.speech.recognize_from_microphone()
@@ -708,6 +701,9 @@ class SeniorHealthAgent:
 
         # Generate AI summary of the call for next time
         print("📝 Generating call summary...")
+        call_summary = None
+        call_duration = int((datetime.now() - conversation_start_time).total_seconds())
+
         try:
             call_summary = self.openai.generate_call_summary()
             print(f"✅ Summary: {call_summary}\n")
@@ -725,12 +721,57 @@ class SeniorHealthAgent:
                     senior_id = profile['seniorId']
                     # Add call record with summary
                     call_metadata = {
-                        "duration": (datetime.now() - conversation_start_time).total_seconds(),
+                        "duration": call_duration,
                         "completed": True,
                         "summary": call_summary
                     }
                     profile_service.add_call_record(senior_id, self.current_session_id, call_metadata)
                     print(f"✅ Call summary saved to profile\n")
+
+                    # Save session metadata to Cosmos DB for easy transcript access
+                    try:
+                        session_metadata = {
+                            'senior_name': senior_name,
+                            'senior_id': senior_id,
+                            'phone_number': phone_number,
+                            'duration': call_duration,
+                            'summary': call_summary,
+                            'completed': True,
+                            'ai_name': config.get_ai_name(),
+                            'company_name': 'Seniorly'
+                        }
+                        self.data.cosmos.add_session_metadata(self.current_session_id, session_metadata)
+                        print(f"✅ Session metadata saved (for transcript access)\n")
+                    except Exception as meta_error:
+                        print(f"⚠️  Failed to save session metadata: {meta_error}\n")
+
+                    # Extract metrics and save to Azure SQL for analytics/dashboard
+                    print("📊 Extracting metrics for analytics...")
+                    try:
+                        from src.services.analytics_service import AnalyticsService
+                        analytics = AnalyticsService()
+
+                        # Get conversation history for analysis
+                        conversation_history = self.openai.save_conversation()
+
+                        # Extract and save metrics
+                        success = analytics.extract_and_save_metrics(
+                            senior_id=senior_id,
+                            session_id=self.current_session_id,
+                            call_summary=call_summary,
+                            conversation_history=conversation_history,
+                            call_duration=call_duration,
+                            call_completed=True
+                        )
+
+                        if success:
+                            print(f"✅ Analytics metrics saved to database\n")
+                        else:
+                            print(f"⚠️  Failed to save analytics metrics\n")
+
+                    except Exception as analytics_error:
+                        print(f"⚠️  Analytics extraction failed: {analytics_error}\n")
+                        # Don't fail the whole call if analytics fails
 
         except Exception as e:
             print(f"⚠️  Could not generate/save summary: {e}\n")

@@ -48,6 +48,12 @@ class Config:
     REDIS_PORT = int(os.getenv('REDIS_PORT', '6380'))
     REDIS_SSL = os.getenv('REDIS_SSL', 'true').lower() == 'true'
 
+    # Azure SQL Database (for analytics)
+    AZURE_SQL_SERVER = os.getenv('AZURE_SQL_SERVER', '').strip("'")
+    AZURE_SQL_DATABASE = os.getenv('AZURE_SQL_DATABASE', '').strip("'")
+    AZURE_SQL_USERNAME = os.getenv('AZURE_SQL_USERNAME', '').strip("'")
+    AZURE_SQL_PASSWORD = os.getenv('AZURE_SQL_PASSWORD', '').strip("'")
+
     # Azure Container Registry
     ACR_LOGIN_SERVER = os.getenv('ACR_LOGIN_SERVER', '').strip("'")
     ACR_USERNAME = os.getenv('ACR_USERNAME', '').strip("'")

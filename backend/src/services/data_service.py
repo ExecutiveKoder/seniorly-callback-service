@@ -137,6 +137,81 @@ class CosmosDBService:
 
         return [{"role": msg["role"], "content": msg["content"]} for msg in session.get("messages", [])]
 
+    def add_session_metadata(self, session_id: str, metadata: Dict):
+        """
+        Add or update metadata for a session (e.g., transcript, summary, senior info)
+
+        Args:
+            session_id: Session ID
+            metadata: Metadata dictionary to merge with existing metadata
+        """
+        try:
+            # Read the session
+            session = self.container.read_item(item=session_id, partition_key=session_id)
+
+            # Merge new metadata with existing
+            if "metadata" not in session:
+                session["metadata"] = {}
+            session["metadata"].update(metadata)
+            session["updatedAt"] = datetime.utcnow().isoformat()
+
+            # Update the session
+            self.container.replace_item(item=session_id, body=session)
+            logger.info(f"Updated metadata for session {session_id}")
+
+        except cosmos_exceptions.CosmosHttpResponseError as e:
+            logger.error(f"Error updating session metadata: {e}")
+            raise
+
+    def get_conversation_transcript(self, session_id: str) -> Optional[str]:
+        """
+        Get a formatted conversation transcript for training/review
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Formatted transcript as string, or None if not found
+        """
+        session = self.get_session(session_id)
+        if not session:
+            return None
+
+        # Build formatted transcript
+        transcript_lines = []
+        transcript_lines.append(f"Session ID: {session_id}")
+        transcript_lines.append(f"Created: {session.get('createdAt', 'Unknown')}")
+
+        # Add metadata if available
+        metadata = session.get('metadata', {})
+        if metadata.get('senior_name'):
+            transcript_lines.append(f"Senior: {metadata['senior_name']}")
+        if metadata.get('senior_id'):
+            transcript_lines.append(f"Senior ID: {metadata['senior_id']}")
+        if metadata.get('duration'):
+            transcript_lines.append(f"Duration: {metadata['duration']} seconds")
+
+        transcript_lines.append("\n" + "="*60)
+        transcript_lines.append("CONVERSATION TRANSCRIPT")
+        transcript_lines.append("="*60 + "\n")
+
+        # Add messages
+        messages = session.get("messages", [])
+        for msg in messages:
+            role = msg["role"].upper()
+            content = msg["content"]
+            timestamp = msg.get("timestamp", "Unknown")
+            transcript_lines.append(f"[{timestamp}] {role}: {content}\n")
+
+        # Add summary if available
+        if metadata.get('summary'):
+            transcript_lines.append("\n" + "="*60)
+            transcript_lines.append("CALL SUMMARY")
+            transcript_lines.append("="*60)
+            transcript_lines.append(metadata['summary'])
+
+        return "\n".join(transcript_lines)
+
 
 class RedisCacheService:
     """Manages session state and caching with Azure Redis"""
