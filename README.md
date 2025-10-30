@@ -47,9 +47,12 @@ Data Storage:
 callback-voice-agent/
 ├── .env                          # Environment variables (credentials)
 ├── requirements.txt              # Python dependencies
+├── run_app.sh                    # Automated launcher (Twilio calls)
 ├── README.md                     # This file
-├── claude.md                     # Infrastructure documentation
-├── instructions.txt              # Original setup notes
+├── CLAUDE.md                     # Infrastructure documentation
+├── twilio_websocket_server.py    # WebSocket server for Twilio
+├── webhook_server.py             # AWS Connect webhook (deprecated)
+├── kinesis_audio_processor.py    # Kinesis streaming (experimental)
 ├── src/
 │   ├── __init__.py
 │   ├── config.py                 # Configuration management
@@ -59,14 +62,22 @@ callback-voice-agent/
 │       ├── __init__.py
 │       ├── speech_service.py     # Azure Speech Services
 │       ├── openai_service.py     # Azure OpenAI GPT-5-CHAT
-│       └── data_service.py       # Cosmos DB, Redis, AI Search
-└── tests/                        # Future: Test files
+│       ├── twilio_service.py     # Twilio integration
+│       ├── aws_connect_service.py # AWS Connect (limited use)
+│       ├── data_service.py       # Cosmos DB, Redis, AI Search
+│       └── cost_tracking_service.py # Per-call cost tracking
+└── tests/
+    ├── README.md                 # Test documentation
+    ├── test_voices.py            # Test Azure Neural Voices
+    └── test_twilio_call.py       # Manual Twilio call test
 ```
 
 ## Prerequisites
 
 - Python 3.11+
-- Azure subscription with services deployed (see `claude.md`)
+- Azure subscription with services deployed (see `CLAUDE.md`)
+- Twilio account (free trial available) for real phone calls
+- ngrok installed (`brew install ngrok`) for Twilio integration
 - Microphone and speakers for local testing
 - All credentials in `.env` file
 
@@ -114,7 +125,28 @@ Required variables:
 
 ## Usage
 
-### Run the Application
+### 🚀 Quick Start - Make Real Phone Calls (Twilio)
+
+**Automated launcher with everything built-in:**
+
+```bash
+./run_app.sh
+```
+
+This single command:
+- Starts the WebSocket server automatically
+- Creates ngrok tunnel automatically
+- Presents interactive menu for making calls
+- No manual setup required!
+
+**Features:**
+- Make outbound calls to any phone number
+- Uses Azure Speech Services (Jason's voice)
+- Real-time bidirectional audio (sub-second latency)
+- View server logs and ngrok logs from menu
+- Automatic cleanup on exit
+
+### Alternative - Local Testing (No Phone)
 
 ```bash
 python src/main.py
@@ -184,6 +216,22 @@ The AI subtly tests cognitive function through:
 - (Future) Personalized content retrieval
 
 ## Testing
+
+### Test Different Voices
+
+```bash
+python3 tests/test_voices.py
+```
+
+Listen to 20+ Azure Neural Voices and select the best one for your use case. Can update `.env` directly from the test script.
+
+### Manual Twilio Call Test
+
+```bash
+python3 tests/test_twilio_call.py
+```
+
+Note: For automated execution, use `./run_app.sh` instead (no manual setup required).
 
 ### Quick Test (Text Mode)
 
