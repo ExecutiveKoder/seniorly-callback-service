@@ -209,8 +209,9 @@ class AWSConnectService:
 
         except Exception as e:
             logger.error(f"Failed to get contact flow ID: {e}")
-            # Return a placeholder - in production you'd create a proper flow
-            return "arn:aws:connect:us-east-1:123456789012:instance/12345678-1234-1234-1234-123456789012/contact-flow/12345678-1234-1234-1234-123456789012"
+            # Return our specific AI Voice Agent Test Flow ID as fallback
+            logger.info("Using hardcoded AI Voice Agent Test Flow ID as fallback")
+            return "407de195-af80-497c-8fe2-386a44894c74"
 
     def _calculate_duration(self, contact: Dict) -> Optional[int]:
         """
