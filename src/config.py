@@ -66,6 +66,11 @@ class Config:
     AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', '').strip("'")
     AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '').strip("'")
 
+    # Twilio (Outbound calling with Media Streams)
+    TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID', '').strip("'")
+    TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN', '').strip("'")
+    TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER', '').strip("'")
+
     # Voice settings
     SPEECH_VOICE_NAME = os.getenv('SPEECH_VOICE_NAME', 'en-US-JennyNeural')
     SPEECH_LANGUAGE = os.getenv('SPEECH_LANGUAGE', 'en-US')
