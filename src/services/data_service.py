@@ -167,7 +167,7 @@ class RedisCacheService:
 
         logger.info(f"Redis Cache Service initialized: {host}:{port}")
 
-    def set_session_state(self, session_id: str, state: Dict, ttl: int = 3600):
+    def set_session_state(self, session_id: str, state: Dict, ttl: int = 3600, senior_id: str = None):
         """
         Store session state in cache
 
@@ -175,26 +175,42 @@ class RedisCacheService:
             session_id: Session ID
             state: State data dictionary
             ttl: Time to live in seconds (default: 1 hour)
+            senior_id: Optional senior ID for key namespacing
         """
         try:
-            key = f"session:{session_id}"
+            # Use senior_id in key for better data isolation
+            if senior_id:
+                key = f"senior:{senior_id}:session:{session_id}"
+            else:
+                key = f"session:{session_id}"
+
             self.client.setex(key, ttl, json.dumps(state))
-            logger.info(f"Set session state for {session_id} with TTL {ttl}s")
+            logger.info(f"Set session state for {session_id} (senior: {senior_id}) with TTL {ttl}s")
         except Exception as e:
             logger.error(f"Error setting session state: {e}")
             raise
 
-    def get_session_state(self, session_id: str) -> Optional[Dict]:
+    def get_session_state(self, session_id: str, senior_id: str = None) -> Optional[Dict]:
         """
         Retrieve session state from cache
 
         Args:
             session_id: Session ID
+            senior_id: Optional senior ID for key namespacing
 
         Returns:
             State data or None if not found
         """
         try:
+            # Try with senior_id first if provided
+            if senior_id:
+                key = f"senior:{senior_id}:session:{session_id}"
+                data = self.client.get(key)
+                if data:
+                    logger.info(f"Retrieved session state for {session_id} (senior: {senior_id})")
+                    return json.loads(data)
+
+            # Fallback to old key format for backwards compatibility
             key = f"session:{session_id}"
             data = self.client.get(key)
             if data:
@@ -205,14 +221,22 @@ class RedisCacheService:
             logger.error(f"Error getting session state: {e}")
             return None
 
-    def delete_session_state(self, session_id: str):
+    def delete_session_state(self, session_id: str, senior_id: str = None):
         """
         Delete session state from cache
 
         Args:
             session_id: Session ID
+            senior_id: Optional senior ID for key namespacing
         """
         try:
+            # Delete both possible key formats
+            if senior_id:
+                key = f"senior:{senior_id}:session:{session_id}"
+                self.client.delete(key)
+                logger.info(f"Deleted session state for {session_id} (senior: {senior_id})")
+
+            # Also delete old format for backwards compatibility
             key = f"session:{session_id}"
             self.client.delete(key)
             logger.info(f"Deleted session state for {session_id}")

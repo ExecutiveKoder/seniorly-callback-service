@@ -127,12 +127,13 @@ class SeniorHealthAgent:
                     print(f"     Note: Redis has public access disabled - this is expected")
                     print(f"     Redis will still work for local connections")
 
-    def start_new_session(self, senior_name: str = None) -> str:
+    def start_new_session(self, senior_name: str = None, senior_id: str = None) -> str:
         """
         Start a new conversation session
 
         Args:
             senior_name: Optional name of the senior
+            senior_id: Optional senior ID from Cosmos DB
 
         Returns:
             Session ID
@@ -143,18 +144,20 @@ class SeniorHealthAgent:
             # Create session in Cosmos DB
             self.data.cosmos.create_session(self.current_session_id)
 
-            # Store session state in Redis with senior name, AI name, and company
+            # Store session state in Redis with senior ID, name, AI name, and company
             session_state = {
                 "session_id": self.current_session_id,
+                "senior_id": senior_id or "Unknown",
                 "senior_name": senior_name or "Unknown",
                 "ai_name": config.get_ai_name(),
                 "company_name": "Seniorly",
                 "start_time": datetime.utcnow().isoformat(),
                 "status": "active"
             }
-            self.data.redis.set_session_state(self.current_session_id, session_state)
+            # Use senior_id in Redis key for better data isolation
+            self.data.redis.set_session_state(self.current_session_id, session_state, senior_id=senior_id)
 
-            logger.info(f"Started new session: {self.current_session_id}")
+            logger.info(f"Started new session: {self.current_session_id} for senior: {senior_id}")
             return self.current_session_id
 
         except Exception as e:
@@ -472,8 +475,9 @@ class SeniorHealthAgent:
             print("   Falling back to simulation mode...")
             phone_number = "289-324-2125"
 
-        # ALWAYS look up senior name from database first (regardless of call history)
+        # ALWAYS look up senior name and ID from database first (regardless of call history)
         senior_name = None
+        senior_id = None
         try:
             from src.services.profile_service import SeniorProfileService
             profile_service = SeniorProfileService(
@@ -484,10 +488,11 @@ class SeniorHealthAgent:
             print(f"🔍 Looking up profile for phone: {phone_number}")
             profile = profile_service.get_senior_by_phone(phone_number)
             if profile:
+                senior_id = profile['seniorId']
                 full_name = profile['fullName']
                 # Extract only the first name
                 senior_name = full_name.split()[0] if full_name else None
-                print(f"✅ Found profile: {full_name} (using first name: {senior_name})")
+                print(f"✅ Found profile: {full_name} (ID: {senior_id[:8]}..., using first name: {senior_name})")
             else:
                 print(f"⚠️  No profile found for {phone_number}")
         except Exception as e:
@@ -496,8 +501,8 @@ class SeniorHealthAgent:
         # Load senior context (call history) if available
         context_loaded = self._load_senior_context(phone_number)
 
-        # Start session with name if available (from phone lookup)
-        self.start_new_session(senior_name or None)
+        # Start session with name and ID if available (from phone lookup)
+        self.start_new_session(senior_name=senior_name, senior_id=senior_id)
 
         # Reset cost tracking for new session
         if self.cost_tracker:
