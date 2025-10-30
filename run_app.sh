@@ -108,26 +108,47 @@ fi
 echo -e "${GREEN}✅ WebSocket server started (PID: $SERVER_PID)${NC}"
 echo ""
 
-# Step 2: Start ngrok tunnel
-echo -e "${YELLOW}🌐 Step 2/3: Starting ngrok tunnel...${NC}"
-ngrok http $WEBHOOK_PORT --log=stdout > /tmp/voice_agent_ngrok.log 2>&1 &
-NGROK_PID=$!
-echo $NGROK_PID > "$NGROK_PID_FILE"
+# Step 2: Determine webhook URL (Azure or ngrok)
+echo -e "${YELLOW}🌐 Step 2/3: Setting up webhook URL...${NC}"
 
-# Wait for ngrok to start and get the URL
-sleep 4
+# Check if Azure endpoint exists
+if [ -f ".azure_endpoint" ]; then
+    WEBHOOK_URL=$(cat .azure_endpoint)
+    echo -e "${GREEN}✅ Using Azure Container Apps endpoint${NC}"
+    echo -e "   Public URL: ${CYAN}${WEBHOOK_URL}${NC}"
+    echo -e "${BLUE}   (No ngrok needed - running on Azure!)${NC}"
+    USE_AZURE=true
+else
+    # Fall back to ngrok for local testing
+    if ! command -v ngrok &> /dev/null; then
+        echo -e "${RED}❌ ERROR: No Azure endpoint found and ngrok not installed${NC}"
+        echo -e "${YELLOW}Please either:${NC}"
+        echo -e "  1. Deploy to Azure: ${GREEN}./deploy_to_azure.sh${NC}"
+        echo -e "  2. Install ngrok: ${GREEN}brew install ngrok${NC}"
+        exit 1
+    fi
 
-# Extract ngrok URL
-NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | python3 -c "import sys, json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])" 2>/dev/null || echo "")
+    echo -e "${BLUE}ℹ️  Using ngrok (local testing mode)${NC}"
+    ngrok http $WEBHOOK_PORT --log=stdout > /tmp/voice_agent_ngrok.log 2>&1 &
+    NGROK_PID=$!
+    echo $NGROK_PID > "$NGROK_PID_FILE"
 
-if [ -z "$NGROK_URL" ]; then
-    echo -e "${RED}❌ Failed to get ngrok URL${NC}"
-    echo -e "${YELLOW}Check logs: tail -f /tmp/voice_agent_ngrok.log${NC}"
-    exit 1
+    # Wait for ngrok to start and get the URL
+    sleep 4
+
+    # Extract ngrok URL
+    WEBHOOK_URL=$(curl -s http://localhost:4040/api/tunnels | python3 -c "import sys, json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])" 2>/dev/null || echo "")
+
+    if [ -z "$WEBHOOK_URL" ]; then
+        echo -e "${RED}❌ Failed to get ngrok URL${NC}"
+        echo -e "${YELLOW}Check logs: tail -f /tmp/voice_agent_ngrok.log${NC}"
+        exit 1
+    fi
+
+    echo -e "${GREEN}✅ Ngrok tunnel started${NC}"
+    echo -e "   Public URL: ${CYAN}${WEBHOOK_URL}${NC}"
+    USE_AZURE=false
 fi
-
-echo -e "${GREEN}✅ Ngrok tunnel started${NC}"
-echo -e "   Public URL: ${CYAN}${NGROK_URL}${NC}"
 echo ""
 
 # Step 3: Launch interactive call menu
@@ -189,7 +210,7 @@ twilio_service = TwilioService(
 # Make the call
 result = twilio_service.initiate_outbound_call(
     destination_phone=destination,
-    webhook_url="${NGROK_URL}/voice",
+    webhook_url="${WEBHOOK_URL}/voice",
     senior_name="${senior_name}"
 )
 

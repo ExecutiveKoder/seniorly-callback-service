@@ -1,12 +1,11 @@
-FROM python:3.13-slim
+FROM python:3.11-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     libssl-dev \
     ca-certificates \
-    libasound2 \
-    wget \
+    portaudio19-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -19,10 +18,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY src/ ./src/
+COPY twilio_websocket_server.py .
 
-# Expose port for webhook server
-EXPOSE 8000
+# Expose port for WebSocket server
+EXPOSE 5000
 
-# Run the webhook server
-CMD ["python3", "webhook_server.py"]
+# Run the Twilio WebSocket server
+CMD ["python3", "twilio_websocket_server.py"]
