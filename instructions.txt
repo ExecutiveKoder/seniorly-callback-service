@@ -1,0 +1,320 @@
+COMPLETE SETUP SUMMARY FOR CURSOR/CLAUDE
+
+WHAT WE BUILT: Voice AI Agent on Azure
+Architecture: Phone calls → Azure services → GPT-5-CHAT brain → responds with natural voice
+
+AZURE SERVICES CREATED (All in Resource Group: voice-agent-rg)
+✅ 1. AZURE COMMUNICATION SERVICES
+
+Resource name: voice-agent-acs-callback-service
+Status: Created, but phone number PENDING approval (support ticket submitted)
+What it does: Handles incoming/outgoing phone calls
+Credentials saved:
+
+ACS_CONNECTION_STRING = [user has this]
+
+
+
+
+✅ 2. AZURE OPENAI SERVICE (GPT-5-CHAT)
+
+Resource name: my-voice-agent-openai
+Region: East US 2
+Model deployed: gpt-5-chat (deployment name: gpt-5-chat-deployment)
+Model version: 2025-10-03
+What it does: AI brain for conversations - natural language understanding and response generation
+Credentials saved:
+
+AZURE_OPENAI_KEY = [user has this]
+AZURE_OPENAI_ENDPOINT = [user has this]
+OPENAI_DEPLOYMENT = gpt-5-chat-deployment
+OPENAI_API_VERSION = 2024-10-21
+
+
+
+
+✅ 3. AZURE SPEECH SERVICES
+
+Resource name: my-voice-agent-speech
+Region: East US 2
+What it does:
+
+Speech-to-Text (STT): Converts caller's voice to text
+Text-to-Speech (TTS): Converts AI responses back to voice
+
+
+Voice configured: en-US-JennyNeural (can change to other neural voices)
+Credentials saved:
+
+AZURE_SPEECH_KEY = [user has this]
+AZURE_SPEECH_REGION = eastus2
+
+
+
+
+✅ 4. AZURE AI SEARCH (Vector Database)
+
+Resource name: my-voice-search
+Region: East US 2
+Pricing tier: Standard
+What it does: Searches knowledge base for context to enhance AI responses
+Index created: knowledge-base (empty - ready for data)
+Credentials saved:
+
+AZURE_SEARCH_ENDPOINT = [user has this]
+AZURE_SEARCH_KEY = [user has this]
+
+
+
+
+✅ 5. AZURE COSMOS DB (Conversation Storage)
+
+Account name: my-voice-agent-db
+Region: West US 2
+Capacity mode: Serverless (pay-per-request)
+Database created: conversations
+Container created: sessions (partition key: /sessionId)
+What it does: Stores conversation history for context and analytics
+Credentials saved:
+
+AZURE_COSMOS_ENDPOINT = [user has this]
+AZURE_COSMOS_KEY = [user has this]
+
+
+
+
+✅ 6. AZURE CACHE FOR REDIS
+
+Resource name: my-voice-cache
+Region: West US 2
+Tier: Basic C0 (250 MB)
+What it does: Fast session management - tracks active calls
+Credentials saved:
+
+AZURE_REDIS_HOST = [user has this]
+AZURE_REDIS_KEY = [user has this]
+REDIS_PORT = 6380
+REDIS_SSL = true
+
+
+
+
+✅ 7. AZURE CONTAINER REGISTRY
+
+Registry name: voiceagentacr (or similar unique name)
+Region: West US 2
+SKU: Basic
+Admin user: Enabled
+What it does: Stores packaged application containers
+Status: Created but empty (no images pushed yet)
+Credentials saved:
+
+ACR_LOGIN_SERVER = [user has this - looks like *.azurecr.io]
+ACR_USERNAME = [user has this]
+ACR_PASSWORD = [user has this]
+
+
+
+
+⚠️ 8. AZURE CONTAINER APPS (INCOMPLETE)
+
+Status: User had issues creating this
+What it needs: Container Apps Environment where the application runs
+Problem: Couldn't complete creation in GUI
+What it does: Hosts and runs the Python application 24/7
+Action needed: Either create via CLI or skip for local testing first
+
+
+CREDENTIALS FILE (User has all these saved)
+bash# AZURE COMMUNICATION SERVICES
+ACS_CONNECTION_STRING=<user has this>
+PHONE_NUMBER=<PENDING - support ticket submitted>
+
+# AZURE OPENAI (GPT-5-CHAT)
+AZURE_OPENAI_KEY=<user has this>
+AZURE_OPENAI_ENDPOINT=<user has this>
+OPENAI_DEPLOYMENT=gpt-5-chat-deployment
+OPENAI_API_VERSION=2024-10-21
+
+# AZURE SPEECH SERVICES
+AZURE_SPEECH_KEY=<user has this>
+AZURE_SPEECH_REGION=eastus2
+
+# AZURE AI SEARCH
+AZURE_SEARCH_ENDPOINT=<user has this>
+AZURE_SEARCH_KEY=<user has this>
+SEARCH_INDEX=knowledge-base
+
+# AZURE COSMOS DB
+AZURE_COSMOS_ENDPOINT=<user has this>
+AZURE_COSMOS_KEY=<user has this>
+COSMOS_DATABASE=conversations
+COSMOS_CONTAINER=sessions
+
+# AZURE REDIS CACHE
+AZURE_REDIS_HOST=<user has this>
+AZURE_REDIS_KEY=<user has this>
+REDIS_PORT=6380
+REDIS_SSL=true
+
+# AZURE CONTAINER REGISTRY
+ACR_LOGIN_SERVER=<user has this>
+ACR_USERNAME=<user has this>
+ACR_PASSWORD=<user has this>
+```
+
+---
+
+## SUBSCRIPTION INFO
+- **Type:** Microsoft Azure Sponsorship
+- **Credits:** $25,000
+- **Region strategy:** Most services in East US 2, some in West US 2 (cross-region works fine)
+
+---
+
+## WHAT'S PENDING
+
+1. **Phone Number Approval:** 
+   - Support ticket submitted to enable phone number purchases on Sponsorship subscription
+   - Waiting for Azure support response (typically 1-4 hours)
+   - Alternative: User could use Twilio for immediate testing
+
+2. **Container Apps:**
+   - Not fully set up due to GUI issues
+   - Can be created via Azure CLI or skipped for local testing
+
+3. **Application Code:**
+   - Not written yet
+   - Needs Python application that connects all services
+
+---
+
+## APPLICATION ARCHITECTURE OVERVIEW
+```
+Incoming Phone Call
+        ↓
+Azure Communication Services (receives call)
+        ↓
+Azure Speech Services (STT) - voice → text
+        ↓
+Azure AI Search (retrieves context)
+        ↓
+Azure OpenAI GPT-5-CHAT (generates response)
+        ↓
+Azure Speech Services (TTS) - text → voice
+        ↓
+Response back to caller
+        ↓
+Store in Cosmos DB (conversation history)
+Redis Cache (manage session state)
+```
+
+---
+
+## TECH STACK NEEDED
+
+**Language:** Python 3.11+
+
+**Key Libraries:**
+```
+azure-communication-callautomation
+azure-cognitiveservices-speech
+openai (for Azure OpenAI)
+azure-cosmos
+azure-search-documents
+redis
+fastapi (for webhooks)
+uvicorn (web server)
+```
+
+**Application Structure:**
+```
+voice-agent/
+├── main.py (FastAPI app, webhook handlers)
+├── services/
+│   ├── call_handler.py (orchestrates call flow)
+│   ├── speech_service.py (STT/TTS)
+│   ├── openai_service.py (GPT-5-CHAT integration)
+│   └── data_service.py (Cosmos DB + Redis + AI Search)
+├── config.py (environment variables)
+├── requirements.txt
+└── Dockerfile (for container deployment)
+```
+
+---
+
+## NEXT STEPS FOR CURSOR/CLAUDE
+
+**Option 1: Test Locally First (Recommended)**
+1. Write Python application code
+2. Test locally with microphone input (no phone needed yet)
+3. Verify all Azure services work
+4. Deploy to Container Apps when ready
+
+**Option 2: Full Deployment**
+1. Create Container Apps Environment via CLI
+2. Write application code
+3. Build and push Docker image to ACR
+4. Deploy to Container Apps
+5. Wait for phone number approval
+6. Configure webhooks and test
+
+**Option 3: Use Twilio for Phone**
+1. Set up Twilio account (5 minutes, free trial)
+2. Get phone number immediately
+3. Write application code
+4. Test end-to-end today
+
+---
+
+## COST ESTIMATE PER 5-MINUTE CALL
+```
+Azure Communication Services: ~$0.065
+Azure Speech (STT):           ~$0.084
+Azure Speech (TTS):           ~$0.048
+Azure OpenAI (GPT-5-CHAT):    ~$0.100-0.150
+Azure AI Search:              ~$0.040
+Azure Cosmos DB:              ~$0.001
+Azure Container Apps:         ~$0.010
+Azure Redis:                  ~$0.002
+─────────────────────────────────────
+TOTAL:                        ~$0.35-0.40/call
+User's $25k = approximately 62,500-71,000 five-minute calls
+
+TESTING OPTIONS WITHOUT PHONE
+
+Azure OpenAI Studio Playground - test GPT-5-CHAT directly
+Speech Studio - test TTS voices
+Local Python script - microphone → AI → speakers
+Web chat interface - text-based testing
+Audio file processing - test with recorded audio
+
+
+KEY FILES USER NEEDS
+The user needs you to create:
+
+requirements.txt - Python dependencies
+config.py - Load environment variables
+services/speech_service.py - Azure Speech integration
+services/openai_service.py - GPT-5-CHAT integration
+services/data_service.py - Cosmos DB, Redis, AI Search
+services/call_handler.py - Orchestration logic
+main.py - FastAPI application with webhooks
+Dockerfile - For containerization
+.env.example - Template for credentials
+
+
+IMPORTANT NOTES
+
+GPT-5-CHAT is optimized for conversational AI with emotional intelligence (128k context)
+Serverless Cosmos DB = pay-per-request, perfect for testing
+Neural voices (en-US-JennyNeural) sound natural
+Cross-region setup (East US 2 + West US 2) is fine for testing
+User has Sponsorship subscription which required special approval for phone numbers
+
+
+BLOCKERS TO RESOLVE
+
+Phone number approval (waiting on support)
+Container Apps creation (can do via CLI or skip for local testing)
+Application code (needs to be written)
