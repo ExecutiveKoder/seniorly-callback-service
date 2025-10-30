@@ -1,0 +1,32 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "greeting-message",
+  "Metadata": {
+    "entryPointPosition": {"x": 15, "y": 15},
+    "snapToGrid": false,
+    "name": "Simple AI Voice Agent Flow",
+    "description": "Basic contact flow for AI voice agent testing",
+    "type": "contactFlow",
+    "status": "published"
+  },
+  "Actions": [
+    {
+      "Identifier": "greeting-message",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "Text": "Hello! This is Jason, your daily wellness companion calling from the Senior Health Monitoring service. This is a test call to verify the connection is working. The phone is ringing successfully. Thank you!"
+      },
+      "Transitions": {
+        "NextAction": "disconnect",
+        "Errors": [],
+        "Conditions": []
+      }
+    },
+    {
+      "Identifier": "disconnect",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

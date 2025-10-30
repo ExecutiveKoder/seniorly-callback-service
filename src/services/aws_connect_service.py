@@ -174,26 +174,35 @@ class AWSConnectService:
 
     def _get_default_contact_flow_id(self) -> str:
         """
-        Get the default contact flow ID for outbound calls
-        In production, you would create a custom contact flow
-        For now, we'll use the default outbound flow
+        Get the AI Voice Agent contact flow ID for outbound calls
+        Uses our custom contact flow specifically designed for AI voice agent
         """
         try:
-            # List contact flows to find default outbound
+            # First try to find our custom AI Voice Agent contact flow
             response = self.connect_client.list_contact_flows(
                 InstanceId=self.instance_id,
                 ContactFlowTypes=['CONTACT_FLOW']
             )
 
-            # Look for default outbound contact flow
+            # Look for our custom AI Voice Agent flow first
             for flow in response['ContactFlowSummaryList']:
-                if 'outbound' in flow['Name'].lower() or 'default' in flow['Name'].lower():
+                if 'AI Voice Agent' in flow['Name']:
+                    logger.info(f"Using AI Voice Agent contact flow: {flow['Id']}")
                     return flow['Id']
 
-            # If no specific outbound flow found, use the first available
+            # Fall back to any simple/basic flow (avoid complex queue flows)
+            for flow in response['ContactFlowSummaryList']:
+                flow_name = flow['Name'].lower()
+                if ('simple' in flow_name or 'basic' in flow_name or
+                    'test' in flow_name or 'inbound' in flow_name):
+                    logger.info(f"Using fallback contact flow: {flow['Id']} ({flow['Name']})")
+                    return flow['Id']
+
+            # Last resort: use the first available (but warn about it)
             if response['ContactFlowSummaryList']:
                 flow_id = response['ContactFlowSummaryList'][0]['Id']
-                logger.warning(f"Using first available contact flow: {flow_id}")
+                flow_name = response['ContactFlowSummaryList'][0]['Name']
+                logger.warning(f"Using first available contact flow: {flow_id} ({flow_name}) - may not work correctly")
                 return flow_id
 
             raise Exception("No contact flows found")
