@@ -1,0 +1,50 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "play-greeting",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 20,
+      "y": 20
+    },
+    "snapToGrid": false,
+    "name": "Seniorly AI Voice Agent",
+    "description": "Dynamic greeting for Seniorly AI voice agent calls",
+    "type": "contactFlow",
+    "status": "published",
+    "ActionMetadata": {
+      "play-greeting": {
+        "position": {
+          "x": 200,
+          "y": 100
+        },
+        "useDynamic": false
+      },
+      "disconnect": {
+        "position": {
+          "x": 450,
+          "y": 100
+        }
+      }
+    }
+  },
+  "Actions": [
+    {
+      "Identifier": "play-greeting",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "Text": "Hello! This is $.Attributes.ai_name from Seniorly. How are you doing today?"
+      },
+      "Transitions": {
+        "NextAction": "disconnect",
+        "Errors": [],
+        "Conditions": []
+      }
+    },
+    {
+      "Identifier": "disconnect",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

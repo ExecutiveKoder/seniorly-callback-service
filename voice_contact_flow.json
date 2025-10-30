@@ -1,0 +1,32 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "play-greeting",
+  "Metadata": {
+    "entryPointPosition": {"x": 15, "y": 15},
+    "snapToGrid": false,
+    "name": "AI Voice Agent Flow",
+    "description": "Voice contact flow for AI voice agent with speech playback",
+    "type": "contactFlow",
+    "status": "published"
+  },
+  "Actions": [
+    {
+      "Identifier": "play-greeting",
+      "Type": "PlayPrompt",
+      "Parameters": {
+        "Text": "Hello! This is Jason, your daily wellness companion calling from the Senior Health Monitoring service. This is a test call to verify the connection is working. Thank you for answering!"
+      },
+      "Transitions": {
+        "NextAction": "disconnect",
+        "Errors": [],
+        "Conditions": []
+      }
+    },
+    {
+      "Identifier": "disconnect",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

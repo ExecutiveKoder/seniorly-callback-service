@@ -58,6 +58,10 @@ class AWSConnectService:
 
             logger.info(f"Initiating outbound call to senior: {senior_name}")
 
+            # Get AI agent name from config
+            from src.config import config
+            ai_name = config.get_ai_name()
+
             # Start outbound voice contact
             response = self.connect_client.start_outbound_voice_contact(
                 DestinationPhoneNumber=formatted_destination,
@@ -66,6 +70,7 @@ class AWSConnectService:
                 SourcePhoneNumber=formatted_source,
                 Attributes={
                     'senior_name': senior_name,
+                    'ai_name': ai_name,
                     'call_purpose': 'daily_wellness_check',
                     'timestamp': datetime.utcnow().isoformat()
                 }
@@ -209,9 +214,9 @@ class AWSConnectService:
 
         except Exception as e:
             logger.error(f"Failed to get contact flow ID: {e}")
-            # Return our specific AI Voice Agent Test Flow ID as fallback
-            logger.info("Using hardcoded AI Voice Agent Test Flow ID as fallback")
-            return "407de195-af80-497c-8fe2-386a44894c74"
+            # Return the Seniorly Voice Agent Simple flow (with Polly TTS) as fallback
+            logger.info("Using Seniorly Voice Agent Simple flow as fallback")
+            return "ad8aab03-abc1-46bf-bae4-fdcb061bf27b"
 
     def _calculate_duration(self, contact: Dict) -> Optional[int]:
         """
