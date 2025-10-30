@@ -5,6 +5,7 @@ Local testing version (microphone/speaker based)
 import sys
 import logging
 from pathlib import Path
+from datetime import datetime, timedelta
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -14,6 +15,7 @@ from src.services.speech_service import SpeechService
 from src.services.openai_service import OpenAIService
 from src.services.data_service import DataService
 from src.services.safety_service import safety_monitor, AlertLevel
+from src.services.cost_tracking_service import CostTrackingService
 from src.senior_health_prompt import SENIOR_HEALTH_SYSTEM_PROMPT
 import uuid
 from datetime import datetime
@@ -91,6 +93,16 @@ class SeniorHealthAgent:
             logger.error(f"Failed to initialize Data Service: {e}")
             print(f"❌ Data Service failed: {e}")
             sys.exit(1)
+
+        # Initialize Cost Tracking Service
+        try:
+            self.cost_tracker = CostTrackingService()
+            print("✅ Cost Tracking Service initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize Cost Tracking Service: {e}")
+            print(f"❌ Cost Tracking Service failed: {e}")
+            # Continue without cost tracking if it fails
+            self.cost_tracker = None
 
         # Session management
         self.current_session_id = None
@@ -323,6 +335,10 @@ class SeniorHealthAgent:
             print(f"\n🤖 {ai_name}: {name_prompt}")
             self.speech.synthesize_to_speaker(name_prompt)
 
+            # Track verification speech synthesis
+            if self.cost_tracker:
+                self.cost_tracker.track_speech_synthesis(name_prompt)
+
             spoken_name = self.speech.recognize_from_microphone()
             if not spoken_name:
                 print("   ❌ Could not hear your name. Please try again.")
@@ -334,6 +350,10 @@ class SeniorHealthAgent:
             dob_prompt = "Please say your date of birth - month, day and year."
             print(f"\n🤖 {ai_name}: {dob_prompt}")
             self.speech.synthesize_to_speaker(dob_prompt)
+
+            # Track DOB verification speech synthesis
+            if self.cost_tracker:
+                self.cost_tracker.track_speech_synthesis(dob_prompt)
 
             spoken_dob = self.speech.recognize_from_microphone()
             if not spoken_dob:
@@ -354,12 +374,20 @@ class SeniorHealthAgent:
                 print(f"\n✅ Identity verified (confidence: {verification_result['confidence_score']:.1%})")
                 print(f"🤖 {ai_name}: {success_msg}")
                 self.speech.synthesize_to_speaker(success_msg)
+
+                # Track success message speech synthesis
+                if self.cost_tracker:
+                    self.cost_tracker.track_speech_synthesis(success_msg)
                 return True
             else:
                 failure_msg = "I'm sorry, but I couldn't verify your identity. For your security, I need to end this call. Please contact support if you need assistance."
                 print(f"\n❌ Identity verification failed (confidence: {verification_result['confidence_score']:.1%})")
                 print(f"🤖 {ai_name}: {failure_msg}")
                 self.speech.synthesize_to_speaker(failure_msg)
+
+                # Track failure message speech synthesis
+                if self.cost_tracker:
+                    self.cost_tracker.track_speech_synthesis(failure_msg)
                 return False
 
         except Exception as e:
@@ -367,6 +395,10 @@ class SeniorHealthAgent:
             print(f"\n❌ Verification error: {e}")
             print(f"🤖 {ai_name}: {error_msg}")
             self.speech.synthesize_to_speaker(error_msg)
+
+            # Track error message speech synthesis
+            if self.cost_tracker:
+                self.cost_tracker.track_speech_synthesis(error_msg)
             return False
 
     def run_voice_conversation(self):
@@ -446,6 +478,10 @@ class SeniorHealthAgent:
 
         self.start_new_session(senior_name or None)
 
+        # Reset cost tracking for new session
+        if self.cost_tracker:
+            self.cost_tracker.reset_session_costs()
+
         print(f"\n📝 Session ID: {self.current_session_id}")
         print(f"👤 Senior: {senior_name or 'Unknown'}\n")
 
@@ -462,6 +498,11 @@ class SeniorHealthAgent:
 
         print(f"\n🤖 {ai_name}: {greeting}")
         self.speech.synthesize_to_speaker(greeting)
+
+        # Track initial greeting speech synthesis
+        if self.cost_tracker:
+            self.cost_tracker.track_speech_synthesis(greeting)
+
         self.save_message("assistant", greeting)
 
         # Identity verification step
@@ -471,12 +512,57 @@ class SeniorHealthAgent:
                 print("\n🚫 Identity verification failed. Ending call for security.")
                 return
 
-        # Conversation loop
+        # Conversation loop with time management
         ai_name = config.get_ai_name()  # Get AI name for conversation loop
         turn_count = 0
+        conversation_start_time = datetime.now()
+        time_warnings_given = {'3min': False, '4min': False}
+
         while True:
             turn_count += 1
             print(f"\n--- Turn {turn_count} ---")
+
+            # Check call duration and give gentle time reminders
+            elapsed_time = datetime.now() - conversation_start_time
+            elapsed_minutes = elapsed_time.total_seconds() / 60
+
+            # 3-minute gentle reminder
+            if elapsed_minutes >= 3.0 and not time_warnings_given['3min']:
+                time_warnings_given['3min'] = True
+                # Add subtle time awareness to AI's next response
+                self.openai.conversation_history.append({
+                    "role": "system",
+                    "content": f"GENTLE TIME REMINDER: You've been talking for about 3 minutes. Start naturally wrapping up the conversation in the next few exchanges. Ask if there's anything else important they want to share, but don't rush them."
+                })
+
+            # 4-minute more direct reminder
+            elif elapsed_minutes >= 4.0 and not time_warnings_given['4min']:
+                time_warnings_given['4min'] = True
+                gentle_wrap_up = f"I want to make sure I'm not keeping you too long, {senior_name if senior_name else ''}. Is there anything else important you'd like to share with me today?"
+                print(f"\n🤖 {ai_name}: {gentle_wrap_up}")
+                self.speech.synthesize_to_speaker(gentle_wrap_up)
+
+                # Track wrap up message speech synthesis
+                if self.cost_tracker:
+                    self.cost_tracker.track_speech_synthesis(gentle_wrap_up)
+
+                self.save_message("assistant", gentle_wrap_up)
+
+            # 5-minute hard limit
+            elif elapsed_minutes >= 5.0:
+                final_wrap_up = f"Thank you so much for our chat today, {senior_name if senior_name else ''}. I want to be respectful of your time. Take care, and I'll talk with you again soon!"
+                print(f"\n⏰ 5-minute limit reached")
+                print(f"🤖 {ai_name}: {final_wrap_up}")
+                self.speech.synthesize_to_speaker(final_wrap_up)
+
+                # Track final wrap up speech synthesis
+                if self.cost_tracker:
+                    self.cost_tracker.track_speech_synthesis(final_wrap_up)
+
+                self.save_message("assistant", final_wrap_up)
+                break
+
+            print(f"⏱️  Call time: {elapsed_minutes:.1f} minutes")
 
             # Get user input via speech recognition
             user_text = self.speech.recognize_from_microphone()
@@ -504,6 +590,11 @@ class SeniorHealthAgent:
                 farewell = "Thank you for chatting with me today. Take care!"
                 print(f"\n🤖 {ai_name}: {farewell}")
                 self.speech.synthesize_to_speaker(farewell)
+
+                # Track farewell speech synthesis
+                if self.cost_tracker:
+                    self.cost_tracker.track_speech_synthesis(farewell)
+
                 self.save_message("assistant", farewell)
                 break
 
@@ -512,11 +603,23 @@ class SeniorHealthAgent:
                 farewell = "Take care! Goodbye."
                 print(f"\n🤖 {ai_name}: {farewell}")
                 self.speech.synthesize_to_speaker(farewell)
+
+                # Track short farewell speech synthesis
+                if self.cost_tracker:
+                    self.cost_tracker.track_speech_synthesis(farewell)
+
                 self.save_message("assistant", farewell)
                 break
 
             # Get AI response
             ai_response = self.openai.chat(user_text, temperature=0.7, max_tokens=200)
+
+            # Track OpenAI token usage (estimated based on text length)
+            if self.cost_tracker and ai_response:
+                # Rough estimation: ~4 chars per token for English text
+                input_tokens = len(user_text) // 4
+                output_tokens = len(ai_response) // 4
+                self.cost_tracker.track_openai_usage(input_tokens, output_tokens)
 
             if not ai_response:
                 print("❌ Failed to get AI response. Ending conversation.")
@@ -526,6 +629,11 @@ class SeniorHealthAgent:
 
             # Speak the response
             self.speech.synthesize_to_speaker(ai_response)
+
+            # Track speech synthesis usage
+            if self.cost_tracker:
+                self.cost_tracker.track_speech_synthesis(ai_response)
+
             self.save_message("assistant", ai_response)
 
             # Check if AI's response is a farewell (safety check)
@@ -547,6 +655,10 @@ class SeniorHealthAgent:
                 farewell = "It's been wonderful talking with you. Take care!"
                 print(f"\n🤖 {ai_name}: {farewell}")
                 self.speech.synthesize_to_speaker(farewell)
+
+                # Track max turns farewell speech synthesis
+                if self.cost_tracker:
+                    self.cost_tracker.track_speech_synthesis(farewell)
                 break
 
         print("\n" + "="*60)
@@ -555,6 +667,15 @@ class SeniorHealthAgent:
         print(f"   Session ID: {self.current_session_id}")
         print(f"   Total turns: {turn_count}")
         print("="*60 + "\n")
+
+        # Display cost summary
+        if self.cost_tracker:
+            # Track final call duration
+            final_duration = (datetime.now() - conversation_start_time).total_seconds()
+            self.cost_tracker.track_connect_call(final_duration)
+
+            # Show detailed cost breakdown
+            self.cost_tracker.print_cost_summary()
 
     def run_text_conversation(self):
         """Run a text-based conversation (no voice, for quick testing)"""
@@ -567,6 +688,10 @@ class SeniorHealthAgent:
         # Start new session
         senior_name = input("Enter senior's name (or press Enter to skip): ").strip()
         self.start_new_session(senior_name or None)
+
+        # Reset cost tracking for new session
+        if self.cost_tracker:
+            self.cost_tracker.reset_session_costs()
 
         print(f"\n📝 Session ID: {self.current_session_id}")
         print(f"👤 Senior: {senior_name or 'Unknown'}\n")
@@ -595,6 +720,12 @@ class SeniorHealthAgent:
             # Get AI response
             ai_response = self.openai.chat(user_input, temperature=0.7, max_tokens=200)
 
+            # Track OpenAI token usage (estimated)
+            if self.cost_tracker and ai_response:
+                input_tokens = len(user_input) // 4
+                output_tokens = len(ai_response) // 4
+                self.cost_tracker.track_openai_usage(input_tokens, output_tokens)
+
             if not ai_response:
                 print("❌ Failed to get AI response.")
                 break
@@ -602,7 +733,12 @@ class SeniorHealthAgent:
             print(f"\n🤖 {ai_name}: {ai_response}\n")
             self.save_message("assistant", ai_response)
 
-        print(f"\n📝 Session saved: {self.current_session_id}\n")
+        print(f"\n📝 Session saved: {self.current_session_id}")
+
+        # Display cost summary for text conversation
+        if self.cost_tracker:
+            self.cost_tracker.print_cost_summary()
+        print()
 
     def dial_phone_number(self):
         """Make actual outbound call using AWS Connect"""
