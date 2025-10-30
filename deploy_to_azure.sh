@@ -47,7 +47,7 @@ echo ""
 
 # Step 1: Build Docker image
 echo -e "${YELLOW}🔨 Step 1/5: Building Docker image...${NC}"
-docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+docker build --load -t ${IMAGE_NAME}:${IMAGE_TAG} .
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Docker build failed${NC}"

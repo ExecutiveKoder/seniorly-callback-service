@@ -490,11 +490,11 @@ class SeniorHealthAgent:
 
         # Initial greeting (personalized if context loaded)
         if context_loaded and senior_name:
-            greeting = f"Hello {senior_name}! This is {ai_name}, your wellness companion. It's good to talk with you again today. How are you doing?"
+            greeting = f"Hello {senior_name}! This is {ai_name} calling from Seniorly. It's good to talk with you again today. How are you doing?"
         elif senior_name:
-            greeting = f"Hello {senior_name}! This is {ai_name}, your daily wellness companion. How are you doing today?"
+            greeting = f"Hello {senior_name}! This is {ai_name} calling from Seniorly. How are you doing today?"
         else:
-            greeting = f"Hello! This is {ai_name}, your daily wellness companion. How are you doing today?"
+            greeting = f"Hello! This is {ai_name} calling from Seniorly. How are you doing today?"
 
         print(f"\n🤖 {ai_name}: {greeting}")
         self.speech.synthesize_to_speaker(greeting)
