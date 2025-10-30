@@ -835,6 +835,13 @@ def main():
     try:
         agent = SeniorHealthAgent()
 
+        # Check if direct voice mode was requested
+        import sys
+        if len(sys.argv) > 1 and sys.argv[1] == '--voice':
+            # Skip menu, go directly to voice conversation
+            agent.run_voice_conversation()
+            return
+
         # Main menu
         while True:
             print("\n" + "="*60)

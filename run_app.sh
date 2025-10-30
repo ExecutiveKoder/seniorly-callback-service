@@ -60,7 +60,7 @@ case $main_choice in
         echo ""
         echo -e "${GREEN}🎤 Starting local voice testing...${NC}"
         echo ""
-        python3 src/main.py
+        python3 src/main.py --voice
         ;;
     2)
         # Phone calls using Azure endpoint
