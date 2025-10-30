@@ -476,10 +476,7 @@ class SeniorHealthAgent:
             except Exception as e:
                 print(f"Could not get senior name: {e}")
 
-        # If no name from profile, ask for it
-        if not senior_name:
-            senior_name = input("Enter your name: ").strip() or None
-
+        # Start session with name if available (from phone lookup)
         self.start_new_session(senior_name or None)
 
         # Reset cost tracking for new session
