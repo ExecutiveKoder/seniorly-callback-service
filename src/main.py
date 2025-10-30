@@ -92,15 +92,12 @@ class SeniorHealthAgent:
             print(f"❌ Data Service failed: {e}")
             sys.exit(1)
 
-        # Test connections
-        print("\n🔍 Testing service connections...")
-        self.test_connections()
-
         # Session management
         self.current_session_id = None
         self.senior_profile = {}
 
         print("\n✅ All services ready!\n")
+        print("💡 Tip: Use menu option 4 to test service connections\n")
 
     def test_connections(self):
         """Test all service connections"""
@@ -233,9 +230,28 @@ class SeniorHealthAgent:
             print(f"👤 You: {user_text}")
             self.save_message("user", user_text)
 
-            # Check for end conversation keywords
-            if any(word in user_text.lower() for word in ['goodbye', 'end call', 'hang up', 'bye bye']):
-                farewell = "Thank you for chatting with me today. Take care, and I'll call you again tomorrow. Goodbye!"
+            # Check for end conversation keywords (improved detection)
+            exit_phrases = [
+                'goodbye', 'good bye', 'bye', 'bye bye',
+                'end call', 'hang up', 'gotta go', 'have to go',
+                'need to go', 'talk later', 'talk to you later',
+                'see you later', 'i\'m done', 'that\'s all',
+                'thanks bye', 'okay bye', 'alright bye'
+            ]
+
+            user_lower = user_text.lower().strip()
+
+            # Direct exit detection
+            if any(phrase in user_lower for phrase in exit_phrases):
+                farewell = "Thank you for chatting with me today. Take care!"
+                print(f"\n🤖 Sarah: {farewell}")
+                self.speech.synthesize_to_speaker(farewell)
+                self.save_message("assistant", farewell)
+                break
+
+            # Short responses that indicate wanting to end (under 10 chars)
+            if len(user_lower) < 10 and any(word in user_lower for word in ['bye', 'done', 'go', 'leave']):
+                farewell = "Take care! Goodbye."
                 print(f"\n🤖 Sarah: {farewell}")
                 self.speech.synthesize_to_speaker(farewell)
                 self.save_message("assistant", farewell)
@@ -254,10 +270,23 @@ class SeniorHealthAgent:
             self.speech.synthesize_to_speaker(ai_response)
             self.save_message("assistant", ai_response)
 
+            # Check if AI's response is a farewell (safety check)
+            ai_lower = ai_response.lower()
+            farewell_indicators = [
+                'take care', 'goodbye', 'talk to you tomorrow',
+                'speak with you tomorrow', 'until tomorrow',
+                'see you tomorrow', 'call you tomorrow'
+            ]
+
+            if any(indicator in ai_lower for indicator in farewell_indicators):
+                # AI has said goodbye, end the call
+                print("\n📞 Call ending (farewell detected)")
+                break
+
             # Safety check - limit conversation length for testing
             if turn_count >= 20:
                 print("\n⚠️  Maximum turns reached for this session.")
-                farewell = "It's been wonderful talking with you. I'll call again tomorrow. Take care!"
+                farewell = "It's been wonderful talking with you. Take care!"
                 print(f"\n🤖 Sarah: {farewell}")
                 self.speech.synthesize_to_speaker(farewell)
                 break
