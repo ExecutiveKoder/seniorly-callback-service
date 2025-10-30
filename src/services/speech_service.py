@@ -143,8 +143,17 @@ class SpeechService:
             logger.info(f"Synthesizing text: {text[:50]}...")
             print(f"\n🔊 Speaking: {text}")
 
-            # Perform synthesis
-            result = speech_synthesizer.speak_text_async(text).get()
+            # Use SSML for faster, more natural speech
+            ssml_text = f"""
+            <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
+                <voice name="{self.voice_name}">
+                    <prosody rate="1.1" pitch="+5%">{text}</prosody>
+                </voice>
+            </speak>
+            """
+
+            # Perform synthesis with optimized SSML
+            result = speech_synthesizer.speak_ssml_async(ssml_text).get()
 
             if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
                 logger.info("Speech synthesis completed successfully")

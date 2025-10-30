@@ -190,6 +190,185 @@ class SeniorHealthAgent:
             logger.error(f"Error saving message: {e}")
             # Continue even if save fails
 
+    def _load_senior_context(self, phone_number: str) -> bool:
+        """
+        Load context from previous calls for this senior using phone number
+
+        Args:
+            phone_number: Senior's phone number (e.g., "289-324-2125")
+
+        Returns:
+            True if context loaded successfully
+        """
+        try:
+            from src.services.profile_service import SeniorProfileService
+
+            # Initialize profile service
+            profile_service = SeniorProfileService(
+                endpoint=config.AZURE_COSMOS_ENDPOINT,
+                key=config.AZURE_COSMOS_KEY,
+                database_name=config.COSMOS_DATABASE
+            )
+
+            # Get senior profile by phone number
+            profile = profile_service.get_senior_by_phone(phone_number)
+            if not profile:
+                print(f"⚠️  Senior profile not found")
+                return False
+
+            print(f"✅ Loaded profile for: {profile['fullName']}")
+
+            # Get last few sessions for context
+            sessions = profile['callHistory']['sessions'][-3:]  # Last 3 calls
+
+            if not sessions:
+                print("   No previous call history")
+                return False
+
+            print(f"   Previous calls: {len(sessions)}")
+
+            # Build context summary
+            context_parts = [
+                f"PREVIOUS CALL HISTORY for {profile['fullName']}:",
+                f"Total previous calls: {profile['callHistory']['totalCalls']}",
+                f"Last call: {profile['callSchedule'].get('lastCallDate', 'Unknown')}"
+            ]
+
+            # Add recent session summaries
+            for i, session in enumerate(sessions, 1):
+                context_parts.append(f"\nCall {i} ({session['date'][:10]}):")
+                if session.get('summary'):
+                    context_parts.append(f"  {session['summary']}")
+
+            # Add medical info if available
+            conditions = profile['medicalInformation'].get('conditions', [])
+            if conditions:
+                context_parts.append(f"\nKnown conditions: {', '.join(conditions)}")
+
+            # Add any open safety alerts
+            open_alerts = profile['safetyAlerts'].get('openAlerts', [])
+            if open_alerts:
+                context_parts.append(f"\n⚠️ OPEN SAFETY ALERTS: {len(open_alerts)}")
+                for alert in open_alerts[-2:]:  # Last 2 alerts
+                    context_parts.append(f"  - {alert['level']}: {', '.join(alert['categories'])}")
+
+            context_summary = "\n".join(context_parts)
+
+            # Add dynamic conversation context
+            from src.services.conversation_context_service import ConversationContextService
+            context_service = ConversationContextService()
+
+            # Build comprehensive context including temporal and historical info
+            dynamic_context = context_service.build_conversation_context(
+                senior_profile=profile,
+                last_sessions=sessions
+            )
+
+            # Combine profile context with dynamic context
+            full_context = context_summary + "\n\n" + dynamic_context
+
+            # Inject context into AI's conversation memory
+            self.openai.conversation_history.insert(0, {
+                "role": "system",
+                "content": full_context
+            })
+
+            print("   ✅ Context loaded into AI memory")
+            print("   ✅ Dynamic conversation context added\n")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error loading senior context: {e}")
+            print(f"   ⚠️  Could not load context: {e}")
+            return False
+
+    def _perform_identity_verification(self, phone_number: str) -> bool:
+        """
+        Perform identity verification using name and date of birth
+        Uses Azure Speech Services for recognition and Cosmos DB for verification
+
+        Args:
+            phone_number: Phone number to look up senior profile
+
+        Returns:
+            True if identity verified successfully
+        """
+        try:
+            from src.services.profile_service import SeniorProfileService
+            from src.services.identity_verification_service import IdentityVerificationService
+
+            print("\n🔐 IDENTITY VERIFICATION")
+            print("   For your security, I need to verify your identity.")
+
+            # Get senior profile
+            profile_service = SeniorProfileService(
+                endpoint=config.AZURE_COSMOS_ENDPOINT,
+                key=config.AZURE_COSMOS_KEY,
+                database_name=config.COSMOS_DATABASE
+            )
+
+            profile = profile_service.get_senior_by_phone(phone_number)
+            if not profile:
+                print("   ❌ Could not find your profile")
+                return False
+
+            # Get AI name for consistent messaging
+            ai_name = config.get_ai_name()
+
+            # Initialize verification service
+            verification_service = IdentityVerificationService()
+
+            # Ask for name verification
+            name_prompt = "Please say your full name for verification."
+            print(f"\n🤖 {ai_name}: {name_prompt}")
+            self.speech.synthesize_to_speaker(name_prompt)
+
+            spoken_name = self.speech.recognize_from_microphone()
+            if not spoken_name:
+                print("   ❌ Could not hear your name. Please try again.")
+                return False
+
+            print(f"   Heard: {spoken_name}")
+
+            # Ask for date of birth verification
+            dob_prompt = "Please say your date of birth - month, day and year."
+            print(f"\n🤖 {ai_name}: {dob_prompt}")
+            self.speech.synthesize_to_speaker(dob_prompt)
+
+            spoken_dob = self.speech.recognize_from_microphone()
+            if not spoken_dob:
+                print("   ❌ Could not hear your date of birth. Please try again.")
+                return False
+
+            print(f"   Heard: {spoken_dob}")
+
+            # Perform verification using Azure data
+            verification_result = verification_service.verify_identity(
+                senior_profile=profile,
+                spoken_name=spoken_name,
+                spoken_dob=spoken_dob
+            )
+
+            if verification_result['verified']:
+                success_msg = "Perfect! Your identity has been verified. Let's continue with your wellness check."
+                print(f"\n✅ Identity verified (confidence: {verification_result['confidence_score']:.1%})")
+                print(f"🤖 {ai_name}: {success_msg}")
+                self.speech.synthesize_to_speaker(success_msg)
+                return True
+            else:
+                failure_msg = "I'm sorry, but I couldn't verify your identity. For your security, I need to end this call. Please contact support if you need assistance."
+                print(f"\n❌ Identity verification failed (confidence: {verification_result['confidence_score']:.1%})")
+                print(f"🤖 {ai_name}: {failure_msg}")
+                self.speech.synthesize_to_speaker(failure_msg)
+                return False
+
+        except Exception as e:
+            error_msg = "I'm having technical difficulties with identity verification. For security, I need to end this call."
+            print(f"\n❌ Verification error: {e}")
+            print(f"🤖 {ai_name}: {error_msg}")
+            self.speech.synthesize_to_speaker(error_msg)
+            return False
+
     def run_voice_conversation(self):
         """Run a voice conversation loop with microphone input and speaker output"""
         print("\n" + "="*60)
@@ -201,20 +380,99 @@ class SeniorHealthAgent:
         print("  - Type 'quit' at any prompt to exit\n")
         print("="*60 + "\n")
 
-        # Start new session
-        senior_name = input("Enter senior's name (or press Enter to skip): ").strip()
+        # Make actual outbound call using AWS Connect
+        phone_number = "289-324-2125"  # John Wick's number
+        senior_name = "John Wick"
+
+        print("📞 INITIATING REAL OUTBOUND CALL")
+        print(f"   Calling: {phone_number}")
+
+        # Initialize AWS Connect service and make the call
+        try:
+            from src.services.aws_connect_service import AWSConnectService
+
+            connect_service = AWSConnectService(
+                region=config.AWS_REGION,
+                instance_id=config.AWS_CONNECT_INSTANCE_ID,
+                access_key=config.AWS_ACCESS_KEY_ID,
+                secret_key=config.AWS_SECRET_ACCESS_KEY,
+                phone_number=config.AWS_CONNECT_PHONE_NUMBER
+            )
+
+            # Make the actual call
+            call_result = connect_service.initiate_outbound_call(
+                destination_phone=phone_number,
+                senior_name=senior_name
+            )
+
+            if not call_result['success']:
+                print(f"❌ Failed to initiate call: {call_result.get('error')}")
+                return
+
+            print(f"✅ Call initiated successfully!")
+            print(f"   Contact ID: {call_result['contact_id']}")
+            print(f"   📞 Your phone ({phone_number}) should be ringing now...")
+
+            # Wait for call to be answered
+            import time
+            print("   ⏳ Waiting for call to connect...")
+            time.sleep(10)  # Give time for call to connect
+
+            print("   🔍 Identifying caller from database...")
+
+        except Exception as e:
+            print(f"❌ Error making outbound call: {e}")
+            print("   Falling back to simulation mode...")
+            phone_number = "289-324-2125"
+
+        # Load senior context automatically by phone number
+        context_loaded = self._load_senior_context(phone_number)
+
+        # Get senior name from loaded profile
+        senior_name = None
+        if context_loaded:
+            try:
+                from src.services.profile_service import SeniorProfileService
+                profile_service = SeniorProfileService(
+                    endpoint=config.AZURE_COSMOS_ENDPOINT,
+                    key=config.AZURE_COSMOS_KEY,
+                    database_name=config.COSMOS_DATABASE
+                )
+                profile = profile_service.get_senior_by_phone(phone_number)
+                if profile:
+                    senior_name = profile['fullName']
+            except Exception as e:
+                print(f"Could not get senior name: {e}")
+
         self.start_new_session(senior_name or None)
 
         print(f"\n📝 Session ID: {self.current_session_id}")
         print(f"👤 Senior: {senior_name or 'Unknown'}\n")
 
-        # Initial greeting
-        greeting = "Hello! This is Sarah, your daily wellness companion. How are you doing today?"
-        print(f"\n🤖 Sarah: {greeting}")
+        # Get AI name from voice configuration
+        ai_name = config.get_ai_name()
+
+        # Initial greeting (personalized if context loaded)
+        if context_loaded and senior_name:
+            greeting = f"Hello {senior_name}! This is {ai_name}, your wellness companion. It's good to talk with you again today. How are you doing?"
+        elif senior_name:
+            greeting = f"Hello {senior_name}! This is {ai_name}, your daily wellness companion. How are you doing today?"
+        else:
+            greeting = f"Hello! This is {ai_name}, your daily wellness companion. How are you doing today?"
+
+        print(f"\n🤖 {ai_name}: {greeting}")
         self.speech.synthesize_to_speaker(greeting)
         self.save_message("assistant", greeting)
 
+        # Identity verification step
+        if context_loaded:
+            verification_passed = self._perform_identity_verification(phone_number)
+            if not verification_passed:
+                print("\n🚫 Identity verification failed. Ending call for security.")
+                return
+
         # Conversation loop
+        ai_name = config.get_ai_name()  # Get AI name for conversation loop
         turn_count = 0
         while True:
             turn_count += 1
@@ -244,7 +502,7 @@ class SeniorHealthAgent:
             # Direct exit detection
             if any(phrase in user_lower for phrase in exit_phrases):
                 farewell = "Thank you for chatting with me today. Take care!"
-                print(f"\n🤖 Sarah: {farewell}")
+                print(f"\n🤖 {ai_name}: {farewell}")
                 self.speech.synthesize_to_speaker(farewell)
                 self.save_message("assistant", farewell)
                 break
@@ -252,7 +510,7 @@ class SeniorHealthAgent:
             # Short responses that indicate wanting to end (under 10 chars)
             if len(user_lower) < 10 and any(word in user_lower for word in ['bye', 'done', 'go', 'leave']):
                 farewell = "Take care! Goodbye."
-                print(f"\n🤖 Sarah: {farewell}")
+                print(f"\n🤖 {ai_name}: {farewell}")
                 self.speech.synthesize_to_speaker(farewell)
                 self.save_message("assistant", farewell)
                 break
@@ -264,7 +522,7 @@ class SeniorHealthAgent:
                 print("❌ Failed to get AI response. Ending conversation.")
                 break
 
-            print(f"🤖 Sarah: {ai_response}")
+            print(f"🤖 {ai_name}: {ai_response}")
 
             # Speak the response
             self.speech.synthesize_to_speaker(ai_response)
@@ -287,7 +545,7 @@ class SeniorHealthAgent:
             if turn_count >= 20:
                 print("\n⚠️  Maximum turns reached for this session.")
                 farewell = "It's been wonderful talking with you. Take care!"
-                print(f"\n🤖 Sarah: {farewell}")
+                print(f"\n🤖 {ai_name}: {farewell}")
                 self.speech.synthesize_to_speaker(farewell)
                 break
 
@@ -313,9 +571,12 @@ class SeniorHealthAgent:
         print(f"\n📝 Session ID: {self.current_session_id}")
         print(f"👤 Senior: {senior_name or 'Unknown'}\n")
 
+        # Get AI name from voice configuration
+        ai_name = config.get_ai_name()
+
         # Initial greeting
-        greeting = "Hello! This is Sarah, your daily wellness companion. How are you doing today?"
-        print(f"\n🤖 Sarah: {greeting}\n")
+        greeting = f"Hello! This is {ai_name}, your daily wellness companion. How are you doing today?"
+        print(f"\n🤖 {ai_name}: {greeting}\n")
         self.save_message("assistant", greeting)
 
         # Conversation loop
@@ -338,10 +599,67 @@ class SeniorHealthAgent:
                 print("❌ Failed to get AI response.")
                 break
 
-            print(f"\n🤖 Sarah: {ai_response}\n")
+            print(f"\n🤖 {ai_name}: {ai_response}\n")
             self.save_message("assistant", ai_response)
 
         print(f"\n📝 Session saved: {self.current_session_id}\n")
+
+    def dial_phone_number(self):
+        """Make actual outbound call using AWS Connect"""
+        print("\n" + "="*60)
+        print("📞 AWS CONNECT OUTBOUND CALLING")
+        print("="*60)
+
+        # Get phone number to dial
+        phone_number = input("Enter phone number to call (e.g., 289-324-2125): ").strip()
+
+        if not phone_number:
+            print("❌ No phone number entered.")
+            return
+
+        try:
+            from src.services.aws_connect_service import AWSConnectService
+
+            print(f"\n📞 Initiating call to: {phone_number}")
+            print("⚠️  This will make a real phone call using AWS Connect!")
+
+            confirm = input("Continue? (y/N): ").strip().lower()
+            if confirm != 'y':
+                print("📞 Call cancelled.")
+                return
+
+            # Initialize AWS Connect service
+            connect_service = AWSConnectService(
+                region=config.AWS_REGION,
+                instance_id=config.AWS_CONNECT_INSTANCE_ID,
+                access_key=config.AWS_ACCESS_KEY_ID,
+                secret_key=config.AWS_SECRET_ACCESS_KEY,
+                phone_number=config.AWS_CONNECT_PHONE_NUMBER
+            )
+
+            # Test connection first
+            if not connect_service.test_connection():
+                print("❌ AWS Connect connection failed. Check your configuration.")
+                return
+
+            # Make the call
+            call_result = connect_service.initiate_outbound_call(
+                destination_phone=phone_number,
+                senior_name="Senior"  # We'll identify them during the call
+            )
+
+            if call_result['success']:
+                print(f"✅ Call initiated successfully!")
+                print(f"   Contact ID: {call_result['contact_id']}")
+                print(f"   From: {config.AWS_CONNECT_PHONE_NUMBER}")
+                print(f"   To: {phone_number}")
+                print("\n📞 The phone should be ringing now...")
+                print("⚠️  Note: You'll need a Contact Flow set up in AWS Connect to handle the call.")
+            else:
+                print(f"❌ Call failed: {call_result.get('error')}")
+
+        except Exception as e:
+            print(f"❌ Error making call: {e}")
 
     def view_conversation_history(self, session_id: str = None):
         """View conversation history for a session"""
@@ -388,23 +706,26 @@ def main():
             print("="*60)
             print("1. Start Voice Conversation (Microphone + Speaker)")
             print("2. Start Text Conversation (Keyboard only)")
-            print("3. View Conversation History")
-            print("4. Test Services")
-            print("5. Exit")
+            print("3. Dial Phone Number (AWS Connect Outbound Call)")
+            print("4. View Conversation History")
+            print("5. Test Services")
+            print("6. Exit")
             print("="*60)
 
-            choice = input("\nSelect an option (1-5): ").strip()
+            choice = input("\nSelect an option (1-6): ").strip()
 
             if choice == '1':
                 agent.run_voice_conversation()
             elif choice == '2':
                 agent.run_text_conversation()
             elif choice == '3':
+                agent.dial_phone_number()
+            elif choice == '4':
                 session_id = input("Enter session ID (or press Enter for current): ").strip()
                 agent.view_conversation_history(session_id or None)
-            elif choice == '4':
-                agent.test_connections()
             elif choice == '5':
+                agent.test_connections()
+            elif choice == '6':
                 print("\n👋 Goodbye!\n")
                 break
             else:

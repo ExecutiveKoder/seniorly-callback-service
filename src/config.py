@@ -58,9 +58,59 @@ class Config:
     ACS_ENDPOINT = os.getenv('ACS_ENDPOINT', '').strip("'")
     PHONE_NUMBER = os.getenv('PHONE_NUMBER', 'pending')
 
+    # AWS Connect (force us-east-1 to match Connect instance)
+    AWS_REGION = 'us-east-1'  # Connect instance region, don't use os.getenv
+    AWS_CONNECT_INSTANCE_ID = os.getenv('AWS_CONNECT_INSTANCE_ID', '').strip("'")
+    AWS_CONNECT_INSTANCE_ARN = os.getenv('AWS_CONNECT_INSTANCE_ARN', '').strip("'")
+    AWS_CONNECT_PHONE_NUMBER = os.getenv('AWS_CONNECT_PHONE_NUMBER', '').strip("'")
+    AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', '').strip("'")
+    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '').strip("'")
+
     # Voice settings
     SPEECH_VOICE_NAME = os.getenv('SPEECH_VOICE_NAME', 'en-US-JennyNeural')
     SPEECH_LANGUAGE = os.getenv('SPEECH_LANGUAGE', 'en-US')
+
+    @staticmethod
+    def get_ai_name() -> str:
+        """Extract AI name from voice setting"""
+        voice_name = Config.SPEECH_VOICE_NAME
+
+        # Extract the name from the voice (e.g., "en-US-JasonNeural" -> "Jason")
+        if 'Jason' in voice_name:
+            return 'Jason'
+        elif 'Jenny' in voice_name:
+            return 'Jenny'
+        elif 'Sara' in voice_name:
+            return 'Sara'
+        elif 'Guy' in voice_name:
+            return 'Guy'
+        elif 'Aria' in voice_name:
+            return 'Aria'
+        elif 'Davis' in voice_name:
+            return 'Davis'
+        elif 'Jane' in voice_name:
+            return 'Jane'
+        elif 'Nancy' in voice_name:
+            return 'Nancy'
+        elif 'Tony' in voice_name:
+            return 'Tony'
+        elif 'Brian' in voice_name:
+            return 'Brian'
+        elif 'Emma' in voice_name:
+            return 'Emma'
+        elif 'Ryan' in voice_name:
+            return 'Ryan'
+        elif 'Michelle' in voice_name:
+            return 'Michelle'
+        elif 'Roger' in voice_name:
+            return 'Roger'
+        elif 'Steffan' in voice_name:
+            return 'Steffan'
+        elif 'AIGenerated' in voice_name:
+            return 'Alex'  # Generic name for AI generated voices
+        else:
+            # Default fallback
+            return 'Alex'
 
     # Application settings
     DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'

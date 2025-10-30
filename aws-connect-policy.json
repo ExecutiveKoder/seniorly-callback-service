@@ -1,0 +1,20 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "connect:StartOutboundVoiceContact",
+                "connect:StopContact",
+                "connect:DescribeContact",
+                "connect:ListContactFlows",
+                "connect:GetContactAttributes",
+                "connect:UpdateContactAttributes"
+            ],
+            "Resource": [
+                "arn:aws:connect:us-east-1:212844904511:instance/988e465a-104f-4e9d-8b4d-453b6a488b78",
+                "arn:aws:connect:us-east-1:212844904511:instance/988e465a-104f-4e9d-8b4d-453b6a488b78/*"
+            ]
+        }
+    ]
+}

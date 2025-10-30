@@ -91,12 +91,15 @@ Be warm, engaging, and professional."""
             logger.info(f"Sending message to GPT-5-CHAT: {user_message[:50]}...")
             print(f"\n🤖 Thinking...")
 
-            # Call Azure OpenAI
+            # Call Azure OpenAI with balanced optimization
             response = self.client.chat.completions.create(
                 model=self.deployment_name,
                 messages=messages,
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=min(max_tokens, 120),  # Allow complete sentences
+                frequency_penalty=0.0,  # Remove penalty that was cutting responses
+                presence_penalty=0.0,   # Remove penalty that was cutting responses
+                stream=False
             )
 
             # Extract assistant response

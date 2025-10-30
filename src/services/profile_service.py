@@ -183,6 +183,41 @@ class SeniorProfileService:
             logger.error(f"Error retrieving senior profile: {e}")
             return None
 
+    def get_senior_by_phone(self, phone_number: str) -> Optional[Dict]:
+        """
+        Retrieve a senior's profile by phone number
+
+        Args:
+            phone_number: Senior's phone number
+
+        Returns:
+            Profile data or None if not found
+        """
+        if not self.container:
+            raise Exception("Seniors container not initialized")
+
+        try:
+            # Query by phone number
+            query = "SELECT * FROM c WHERE c.phoneNumber = @phone_number"
+            parameters = [{"name": "@phone_number", "value": phone_number}]
+
+            items = list(self.container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True
+            ))
+
+            if items:
+                logger.info("Found senior profile by phone lookup")
+                return items[0]
+            else:
+                logger.warning("No senior profile found by phone lookup")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error retrieving senior by phone: {e}")
+            return None
+
     def update_senior_profile(self, senior_id: str, updates: Dict) -> bool:
         """
         Update a senior's profile
