@@ -470,11 +470,15 @@ class SeniorHealthAgent:
                     key=config.AZURE_COSMOS_KEY,
                     database_name=config.COSMOS_DATABASE
                 )
+                print(f"🔍 Looking up profile for phone: {phone_number}")
                 profile = profile_service.get_senior_by_phone(phone_number)
                 if profile:
                     senior_name = profile['fullName']
+                    print(f"✅ Found profile: {senior_name}")
+                else:
+                    print(f"⚠️  No profile found for {phone_number}")
             except Exception as e:
-                print(f"Could not get senior name: {e}")
+                print(f"❌ Could not get senior name: {e}")
 
         # Start session with name if available (from phone lookup)
         self.start_new_session(senior_name or None)
@@ -488,6 +492,11 @@ class SeniorHealthAgent:
 
         # Get AI name from voice configuration
         ai_name = config.get_ai_name()
+
+        # Update system prompt with senior's name for personalized responses
+        if senior_name:
+            personalized_prompt = f"{SENIOR_HEALTH_SYSTEM_PROMPT}\n\nIMPORTANT: You are speaking with {senior_name}. Use their name naturally throughout the conversation."
+            self.openai.set_system_prompt(personalized_prompt)
 
         # Initial greeting (personalized if context loaded)
         if context_loaded and senior_name:
