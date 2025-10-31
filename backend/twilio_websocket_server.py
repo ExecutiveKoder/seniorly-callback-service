@@ -323,13 +323,15 @@ async def initiate_call(request: Request):
         logger.info(f"✅ Context loaded: {context_loaded}")
 
         # Store preloaded context for this phone number
+        # Normalize phone number (remove dashes/spaces for consistent lookup)
         import time
-        preloaded_context[phone_number] = {
+        normalized_phone = phone_number.replace("-", "").replace(" ", "")
+        preloaded_context[normalized_phone] = {
             "senior_name": senior_name,
             "senior_id": senior_id,
             "context_loaded_at": time.time()
         }
-        logger.info(f"✅ Context cached for phone number")
+        logger.info(f"✅ Context cached for phone number (normalized: {normalized_phone})")
 
         # STEP 2: NOW place the call (context is already in memory)
         logger.info("📞 Placing call...")
@@ -457,14 +459,16 @@ async def media_stream(websocket: WebSocket):
                 context_loaded = False
 
                 # Check if context was already preloaded via /initiate-call endpoint
-                if phone_number in preloaded_context:
-                    cached = preloaded_context[phone_number]
+                # Normalize phone number for consistent lookup
+                normalized_phone = phone_number.replace("-", "").replace(" ", "")
+                if normalized_phone in preloaded_context:
+                    cached = preloaded_context[normalized_phone]
                     senior_name = cached["senior_name"]
                     senior_id = cached["senior_id"]
                     context_loaded = True
                     logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Using PRE-LOADED context (no delay!)")
                     # Remove from cache after use
-                    del preloaded_context[phone_number]
+                    del preloaded_context[normalized_phone]
                 else:
                     # Context not preloaded, load it now (will take 15-30 seconds)
                     logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Context NOT preloaded, loading now...")

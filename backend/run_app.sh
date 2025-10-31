@@ -141,7 +141,7 @@ case $main_choice in
             echo -e "   ${CYAN}Context: Pre-loaded (no delay when answered!)${NC}"
             echo ""
             echo -e "${GREEN}📱 Phone should ring shortly!${NC}"
-        else:
+        else
             ERROR=$(echo "$RESPONSE" | grep -o '"error":\s*"[^"]*"' | cut -d'"' -f4)
             echo ""
             echo -e "${RED}❌ CALL FAILED: ${ERROR}${NC}"
