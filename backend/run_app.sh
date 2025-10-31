@@ -83,6 +83,10 @@ case $main_choice in
         fi
 
         WEBHOOK_URL=$(cat .azure_endpoint)
+        # Ensure scheme is present (the file may contain only the FQDN)
+        if [[ "$WEBHOOK_URL" != http* ]]; then
+            WEBHOOK_URL="https://${WEBHOOK_URL}"
+        fi
         echo -e "${GREEN}✅ Using Azure endpoint:${NC} ${CYAN}${WEBHOOK_URL}${NC}"
         echo ""
 

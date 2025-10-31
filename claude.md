@@ -520,6 +520,46 @@ az containerapp show \
 
 ---
 
+## 🎧 Real-Time Voice Tuning (VAD + Latency)
+
+### Voice Activity Detection (VAD) Environment Variables
+
+Add these to the Container App (or `.env` for local), adjustable per deployment:
+
+```
+VAD_DEBUG=true                 # Log per-chunk metrics (no PHI)
+VAD_ENABLE_ZCR=true            # Enable zero-crossing rate gate
+VAD_ZCR_MIN=0.02               # Lower bound for speech-like ZCR
+VAD_ZCR_MAX=0.25               # Upper bound for speech-like ZCR
+VAD_MIN_THRESHOLD=0.008        # Minimum RMS floor for detection (0.006–0.012 typical)
+VAD_AMBIENT_MULTIPLIER=2.2     # Multiplier × ambient RMS (2.0–3.5 typical)
+VAD_SUSTAINED_CHUNKS=2         # Chunks (≈2s per chunk) required before STT
+VAD_COOLDOWN_MS=1200           # Post‑TTS input cooldown to avoid echo
+VAD_PROMPT_GRACE_SECONDS=10    # Delay before any “can’t hear you” prompt
+VAD_MIN_VARIANCE=1e-5          # Min variance across subwindows to reject steady hum
+```
+
+Recommended defaults above are balanced for phone audio to reduce false accepts while not requiring users to raise their voice. Lower `VAD_MIN_THRESHOLD`/`VAD_AMBIENT_MULTIPLIER` for quieter users; raise them to fight noisy environments.
+
+### Turn-Taking and Latency
+
+- Processing window reduced to ≈1s (was ≈2s) for faster acknowledgements
+- Serialized STT→LLM→TTS with a processing lock (prevents overlapping prompts)
+- Input is muted during TTS and for a short cooldown after playback
+
+### Deployment Notes (Azure Container Apps)
+
+- Ensure external ingress is enabled on port 5000
+- Set `--min-replicas 1` to avoid cold starts
+- Use AMD64 images: `docker buildx build --platform linux/amd64 …`
+- Keep the app warm by pinging `/health` every 1–5 minutes (optional)
+
+### Launcher (.azure_endpoint)
+
+`run_app.sh` auto-prepends `https://` if `.azure_endpoint` contains only the FQDN. This fixes readiness checks and call initiation that rely on a full URL.
+
+---
+
 ## 🔐 Security & HIPAA Compliance
 
 ### Encryption

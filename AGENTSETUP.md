@@ -296,6 +296,13 @@ az containerapp create \
     AZURE_SPEECH_KEY=secret
 ```
 
+### Container Apps Deployment Notes
+
+- Enable external ingress on port 5000 and set `--min-replicas 1` to avoid cold starts.
+- Build AMD64 images for Azure (`docker buildx build --platform linux/amd64 …`).
+- Keep the app warm by pinging `/health` every 1–5 minutes (optional).
+- The launcher `run_app.sh` auto-prepends `https://` to `.azure_endpoint` if it contains only the FQDN.
+
 ---
 
 ## 📞 AWS Connect Setup
@@ -405,6 +412,18 @@ AWS_SECRET_ACCESS_KEY=xxx
 TWILIO_ACCOUNT_SID=xxx
 TWILIO_AUTH_TOKEN=xxx
 TWILIO_PHONE_NUMBER=+18668119355
+
+# Voice Activity Detection (VAD) and Latency (recommended defaults)
+VAD_DEBUG=true
+VAD_ENABLE_ZCR=true
+VAD_ZCR_MIN=0.02
+VAD_ZCR_MAX=0.25
+VAD_MIN_THRESHOLD=0.008
+VAD_AMBIENT_MULTIPLIER=2.2
+VAD_SUSTAINED_CHUNKS=2
+VAD_COOLDOWN_MS=1200
+VAD_PROMPT_GRACE_SECONDS=10
+VAD_MIN_VARIANCE=1e-5
 ```
 
 ---

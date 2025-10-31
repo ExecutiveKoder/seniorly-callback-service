@@ -2,7 +2,7 @@
 """
 Twilio WebSocket Server for Real-Time Voice with Azure Speech
 Integrated with SeniorHealthAgent for full conversation management
-Version: 2.6 - Balanced noise filtering + timeout handling
+Version: 2.7 - Robust VAD (ambient during TTS, cooldown, stricter gating)
 
 NOISE FILTERING:
 - Layer 1: RMS energy threshold 0.03 (balanced for phone audio levels)
@@ -25,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import asyncio
+import time
 import json
 import base64
 import logging
@@ -32,6 +33,7 @@ import wave
 import io
 import audioop
 import numpy as np
+import os
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import Response
 import uvicorn
@@ -54,6 +56,27 @@ agent = None
 # Track which phone numbers have pre-loaded context
 # Format: {phone_number: {senior_name, senior_id, context_loaded_at}}
 preloaded_context = {}
+
+# VAD configuration (tunable via environment variables)
+VAD_DEBUG = os.getenv('VAD_DEBUG', 'false').lower() == 'true'
+VAD_ENABLE_ZCR = os.getenv('VAD_ENABLE_ZCR', 'true').lower() == 'true'
+VAD_ZCR_MIN = float(os.getenv('VAD_ZCR_MIN', '0.02'))
+VAD_ZCR_MAX = float(os.getenv('VAD_ZCR_MAX', '0.25'))
+VAD_MIN_THRESHOLD = float(os.getenv('VAD_MIN_THRESHOLD', '0.010'))
+VAD_AMBIENT_MULTIPLIER = float(os.getenv('VAD_AMBIENT_MULTIPLIER', '3.0'))
+VAD_SUSTAINED_CHUNKS = int(os.getenv('VAD_SUSTAINED_CHUNKS', '2'))
+VAD_COOLDOWN_MS = int(os.getenv('VAD_COOLDOWN_MS', '1000'))
+VAD_PROMPT_GRACE_SECONDS = float(os.getenv('VAD_PROMPT_GRACE_SECONDS', '8.0'))
+VAD_MIN_VARIANCE = float(os.getenv('VAD_MIN_VARIANCE', '1e-5'))
+
+def compute_zero_crossing_rate(normalized: np.ndarray) -> float:
+    """Compute zero-crossing rate over the whole window."""
+    if normalized.size < 2:
+        return 0.0
+    signs = np.sign(normalized)
+    crossings = np.where(np.diff(signs))[0].size
+    return float(crossings) / float(normalized.size)
+
 
 def has_significant_audio(pcm_data: bytes, threshold: float = 0.015) -> bool:
     """
@@ -86,18 +109,43 @@ def has_significant_audio(pcm_data: bytes, threshold: float = 0.015) -> bool:
         rms = np.sqrt(np.mean(normalized ** 2))
 
         if rms < threshold:
-            logger.info(f"❌ Audio too quiet (RMS: {rms:.4f} < {threshold})")
+            if VAD_DEBUG:
+                logger.info(f"VAD: fail rms (rms={rms:.4f}, thr={threshold:.4f})")
             return False
 
-        # DISABLED LAYERS 2-4: Too aggressive for phone audio
-        # Just use simple RMS threshold for now
+        # LAYER 2 (optional): Zero-crossing rate range
+        if VAD_ENABLE_ZCR:
+            zcr = compute_zero_crossing_rate(normalized)
+            if not (VAD_ZCR_MIN <= zcr <= VAD_ZCR_MAX):
+                if VAD_DEBUG:
+                    logger.info(f"VAD: fail zcr (zcr={zcr:.4f}, range=({VAD_ZCR_MIN:.2f},{VAD_ZCR_MAX:.2f}))")
+                return False
+        else:
+            zcr = -1.0
 
-        logger.info(f"✅ Audio detected (RMS: {rms:.4f})")
+        # LAYER 3: Dynamic variance across subwindows (guards against steady hum/TV)
+        # Split into 8 segments and compute RMS variance
+        segment_count = 8
+        seg_size = max(1, normalized.size // segment_count)
+        seg_rms = []
+        for i in range(0, normalized.size, seg_size):
+            seg = normalized[i:i + seg_size]
+            if seg.size == 0:
+                continue
+            seg_rms.append(float(np.sqrt(np.mean(seg ** 2))))
+        var = float(np.var(seg_rms)) if seg_rms else 0.0
+        if var < VAD_MIN_VARIANCE:
+            if VAD_DEBUG:
+                logger.info(f"VAD: fail variance (var={var:.6f} < min={VAD_MIN_VARIANCE:.6f})")
+            return False
+
+        if VAD_DEBUG:
+            logger.info(f"VAD: pass (rms={rms:.4f}, thr={threshold:.4f}, zcr={zcr:.4f}, var={var:.6f})")
         return True
 
     except Exception as e:
         logger.error(f"Error checking audio level: {e}")
-        return True  # Default to processing if check fails
+        return False  # Be conservative on error
 
 def convert_mulaw_to_pcm_wav(mulaw_data: bytes, output_file: str):
     """Convert Twilio's mulaw 8kHz audio to PCM WAV for Azure Speech"""
@@ -422,17 +470,22 @@ async def media_stream(websocket: WebSocket):
     greeting_sent = False
     stream_sid = None
     agent_is_speaking = False  # Flag to ignore incoming audio while agent speaks
+    is_processing = False       # Serialize STT→LLM→TTS pipeline
     silence_counter = 0  # Track consecutive silence chunks
     speech_counter = 0  # Track consecutive speech chunks
-    SPEECH_CHUNKS_REQUIRED = 1  # Require 1 chunk of valid speech (reduced from 2)
+    SPEECH_CHUNKS_REQUIRED = max(1, VAD_SUSTAINED_CHUNKS)
     no_response_attempts = 0  # Track how many times we've asked user to respond
     MAX_NO_RESPONSE_ATTEMPTS = 3  # End call after 3 failed prompts
 
     # Adaptive noise floor learning - ENABLED to handle variable phone audio levels
     ambient_noise_samples = []
-    ambient_noise_threshold = 0.003  # Start conservative, will adapt
-    learning_ambient = True  # ENABLED - learn ambient noise in first 3 chunks
-    AMBIENT_LEARNING_CHUNKS = 3  # Learn from first 6 seconds of call
+    ambient_noise_threshold = VAD_MIN_THRESHOLD  # Minimum threshold to avoid ultra-quiet false triggers
+    learning_ambient = True  # Learn ambient noise early
+    AMBIENT_LEARNING_CHUNKS = 3  # Learn from ~6 seconds total
+
+    # Input gating/cooldowns
+    input_unmute_at = 0.0       # Time when we accept user input again after TTS
+    no_prompt_until = 0.0       # Do not prompt "can't hear you" before this time
 
     # Get phone number from query params (will be passed by run_app.sh)
     # For now, use a default for testing
@@ -535,12 +588,34 @@ async def media_stream(websocket: WebSocket):
                     # Wait a bit for greeting to finish playing, then allow user input
                     await asyncio.sleep(2)
                     agent_is_speaking = False
+                    # Add short cooldown to avoid picking up trailing echo
+                    input_unmute_at = time.time() + (VAD_COOLDOWN_MS / 1000.0)
+                    # Give user a fair window before prompting
+                    no_prompt_until = time.time() + VAD_PROMPT_GRACE_SECONDS
                     audio_buffer.clear()  # Clear any audio received during greeting
                     logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Ready for user speech")
 
             elif data.get('event') == 'media':
-                # Ignore incoming audio while agent is speaking
+                # During agent speech, allow ambient learning but do not process user input
                 if agent_is_speaking:
+                    payload = data['media']['payload']
+                    audio_chunk = base64.b64decode(payload)
+                    audio_buffer.extend(audio_chunk)
+                    if len(audio_buffer) >= 16000:
+                        pcm_data = audioop.ulaw2lin(bytes(audio_buffer), 2)
+                        if learning_ambient and len(ambient_noise_samples) < AMBIENT_LEARNING_CHUNKS:
+                            audio_array = np.frombuffer(pcm_data, dtype=np.int16)
+                            if len(audio_array) > 0:
+                                normalized = audio_array.astype(np.float32) / 32768.0
+                                rms = np.sqrt(np.mean(normalized ** 2))
+                                ambient_noise_samples.append(rms)
+                                logger.info(f"📊 (TTS) Learning ambient noise: {rms:.4f} ({len(ambient_noise_samples)}/{AMBIENT_LEARNING_CHUNKS})")
+                                if len(ambient_noise_samples) == AMBIENT_LEARNING_CHUNKS:
+                                    avg_ambient = np.mean(ambient_noise_samples)
+                                    ambient_noise_threshold = max(VAD_MIN_THRESHOLD, avg_ambient * VAD_AMBIENT_MULTIPLIER)
+                                    learning_ambient = False
+                                    logger.info(f"✅ Ambient learned during TTS: avg={avg_ambient:.4f}, thr={ambient_noise_threshold:.4f}")
+                        audio_buffer.clear()
                     continue
 
                 # Received audio from the caller
@@ -548,9 +623,16 @@ async def media_stream(websocket: WebSocket):
                 audio_chunk = base64.b64decode(payload)
                 audio_buffer.extend(audio_chunk)
 
-                # Process when we have enough audio (~2 seconds)
-                if len(audio_buffer) >= 16000:
+                # Respect post-TTS cooldown to avoid echo
+                if time.time() < input_unmute_at:
+                    if len(audio_buffer) >= 16000:
+                        audio_buffer.clear()
+                    continue
+
+                # Process when we have enough audio (~1 second)
+                if len(audio_buffer) >= 8000 and not is_processing:
                     logger.info(f"Processing audio chunk ({len(audio_buffer)} bytes)")
+                    is_processing = True
 
                     # Convert mulaw to PCM to check audio levels first
                     pcm_data = audioop.ulaw2lin(bytes(audio_buffer), 2)
@@ -564,11 +646,10 @@ async def media_stream(websocket: WebSocket):
                             ambient_noise_samples.append(rms)
                             logger.info(f"📊 Learning ambient noise: {rms:.4f} (sample {len(ambient_noise_samples)}/{AMBIENT_LEARNING_CHUNKS})")
 
-                            if len(ambient_noise_samples) == AMBIENT_LEARNING_CHUNKS:
-                                # Set threshold to 2.5x the average ambient noise (conservative multiplier)
+                        if len(ambient_noise_samples) == AMBIENT_LEARNING_CHUNKS:
+                                # Set threshold to multiplier x average ambient noise, min floor
                                 avg_ambient = np.mean(ambient_noise_samples)
-                                # Minimum threshold: 0.002, multiplier: 2.5x
-                                ambient_noise_threshold = max(0.002, avg_ambient * 2.5)
+                                ambient_noise_threshold = max(VAD_MIN_THRESHOLD, avg_ambient * VAD_AMBIENT_MULTIPLIER)
                                 learning_ambient = False
                                 logger.info(f"✅ Ambient noise learned: avg={avg_ambient:.4f}, threshold={ambient_noise_threshold:.4f}")
 
@@ -584,7 +665,7 @@ async def media_stream(websocket: WebSocket):
                         silence_counter += 1
 
                         # After 30 seconds of silence (15 chunks x 2 seconds), prompt user
-                        if silence_counter >= 15:
+                        if silence_counter >= 15 and time.time() >= no_prompt_until:
                             no_response_attempts += 1
                             logger.info(f"⏱️ No response detected (attempt {no_response_attempts}/{MAX_NO_RESPONSE_ATTEMPTS})")
 
@@ -653,6 +734,7 @@ async def media_stream(websocket: WebSocket):
                     # Clear buffer and reset counters
                     audio_buffer.clear()
                     speech_counter = 0
+                    is_processing = False
 
             elif data.get('event') == 'stop':
                 logger.info("Stream stopped")

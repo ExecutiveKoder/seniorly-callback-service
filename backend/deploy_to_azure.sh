@@ -28,7 +28,7 @@ export $(cat .env | grep -v '^#' | xargs)
 RESOURCE_GROUP="${RESOURCE_GROUP:-voice-agent-rg}"
 ACR_NAME="${ACR_USERNAME:-myvoiceagentacr}"
 ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER}"
-CONTAINER_APP_NAME="voice-agent-app"
+CONTAINER_APP_NAME="voice-agent-backend"
 CONTAINER_APP_ENV="voice-agent-env"
 IMAGE_NAME="twilio-websocket-server"
 IMAGE_TAG="latest"
