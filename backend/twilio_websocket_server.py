@@ -2,6 +2,7 @@
 """
 Twilio WebSocket Server for Real-Time Voice with Azure Speech
 Integrated with SeniorHealthAgent for full conversation management
+Version: 2.0 - WebSocket initialization moved to start event
 """
 import sys
 from pathlib import Path
