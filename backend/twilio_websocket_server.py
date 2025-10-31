@@ -428,10 +428,11 @@ async def media_stream(websocket: WebSocket):
     no_response_attempts = 0  # Track how many times we've asked user to respond
     MAX_NO_RESPONSE_ATTEMPTS = 3  # End call after 3 failed prompts
 
-    # Adaptive noise floor learning
+    # Adaptive noise floor learning - ENABLED to handle variable phone audio levels
     ambient_noise_samples = []
-    ambient_noise_threshold = 0.005  # Based on actual speech RMS (0.0001-0.0042 from logs)
-    learning_ambient = False  # DISABLED - use fixed threshold
+    ambient_noise_threshold = 0.003  # Start conservative, will adapt
+    learning_ambient = True  # ENABLED - learn ambient noise in first 3 chunks
+    AMBIENT_LEARNING_CHUNKS = 3  # Learn from first 6 seconds of call
 
     # Get phone number from query params (will be passed by run_app.sh)
     # For now, use a default for testing
@@ -554,19 +555,20 @@ async def media_stream(websocket: WebSocket):
                     # Convert mulaw to PCM to check audio levels first
                     pcm_data = audioop.ulaw2lin(bytes(audio_buffer), 2)
 
-                    # Learn ambient noise for first 5 chunks (10 seconds)
-                    if learning_ambient and len(ambient_noise_samples) < 5:
+                    # Learn ambient noise for first 3 chunks (6 seconds) - during greeting playback
+                    if learning_ambient and len(ambient_noise_samples) < AMBIENT_LEARNING_CHUNKS:
                         audio_array = np.frombuffer(pcm_data, dtype=np.int16)
                         if len(audio_array) > 0:
                             normalized = audio_array.astype(np.float32) / 32768.0
                             rms = np.sqrt(np.mean(normalized ** 2))
                             ambient_noise_samples.append(rms)
-                            logger.info(f"📊 Learning ambient noise: {rms:.4f} (sample {len(ambient_noise_samples)}/5)")
+                            logger.info(f"📊 Learning ambient noise: {rms:.4f} (sample {len(ambient_noise_samples)}/{AMBIENT_LEARNING_CHUNKS})")
 
-                            if len(ambient_noise_samples) == 5:
-                                # Set threshold to 4x the average ambient noise (allows for speech variation)
+                            if len(ambient_noise_samples) == AMBIENT_LEARNING_CHUNKS:
+                                # Set threshold to 2.5x the average ambient noise (conservative multiplier)
                                 avg_ambient = np.mean(ambient_noise_samples)
-                                ambient_noise_threshold = max(0.005, avg_ambient * 4.0)  # Lower minimum, higher multiplier
+                                # Minimum threshold: 0.002, multiplier: 2.5x
+                                ambient_noise_threshold = max(0.002, avg_ambient * 2.5)
                                 learning_ambient = False
                                 logger.info(f"✅ Ambient noise learned: avg={avg_ambient:.4f}, threshold={ambient_noise_threshold:.4f}")
 
