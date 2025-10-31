@@ -745,32 +745,46 @@ class SeniorHealthAgent:
                     except Exception as meta_error:
                         print(f"⚠️  Failed to save session metadata: {meta_error}\n")
 
-                    # Extract metrics and save to Azure SQL for analytics/dashboard
-                    print("📊 Extracting metrics for analytics...")
+                    # Sync conversation data to PostgreSQL analytics database
+                    print("📊 Syncing to PostgreSQL analytics database...")
                     try:
-                        from src.services.analytics_service import AnalyticsService
-                        analytics = AnalyticsService()
+                        from src.services.analytics_sync_service import AnalyticsSyncService
+                        sync_service = AnalyticsSyncService()
 
-                        # Get conversation history for analysis
-                        conversation_history = self.openai.save_conversation()
+                        # Get the full session data from Cosmos DB
+                        session_data = {
+                            'sessionId': self.current_session_id,
+                            'createdAt': conversation_start_time.isoformat(),
+                            'messages': [],
+                            'metadata': {
+                                'senior_id': senior_id,
+                                'senior_name': senior_name,
+                                'phone_number': phone_number,
+                                'call_duration': call_duration,
+                                'summary': call_summary,
+                                'call_completed': True
+                            }
+                        }
 
-                        # Extract and save metrics
-                        success = analytics.extract_and_save_metrics(
-                            senior_id=senior_id,
-                            session_id=self.current_session_id,
-                            call_summary=call_summary,
-                            conversation_history=conversation_history,
-                            call_duration=call_duration,
-                            call_completed=True
-                        )
+                        # Add messages to session data
+                        for msg in self.openai.full_conversation_history:
+                            session_data['messages'].append({
+                                'role': msg['role'],
+                                'content': msg['content'],
+                                'timestamp': conversation_start_time.isoformat(),
+                                'metadata': {}
+                            })
+
+                        # Sync to PostgreSQL
+                        success = sync_service.sync_conversation(session_data)
 
                         if success:
-                            print(f"✅ Analytics metrics saved to database\n")
+                            print(f"✅ Analytics data synced to PostgreSQL\n")
                         else:
-                            print(f"⚠️  Failed to save analytics metrics\n")
+                            print(f"⚠️  Failed to sync analytics data\n")
 
                     except Exception as analytics_error:
-                        print(f"⚠️  Analytics extraction failed: {analytics_error}\n")
+                        print(f"⚠️  PostgreSQL sync failed: {analytics_error}\n")
                         # Don't fail the whole call if analytics fails
 
         except Exception as e:
