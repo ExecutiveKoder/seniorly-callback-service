@@ -18,25 +18,31 @@ The system makes outbound phone calls to seniors, conducts natural conversations
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     CALL INITIATION                              │
-│  Python Backend (Azure Container Apps)                           │
-│  └─ Twilio API: Call senior's phone number                      │
+│                     CALL INITIATION (NEW!)                       │
+│  POST /initiate-call {"phone_number": "..."}                    │
+│  ├─ Load senior profile from Cosmos DB                          │
+│  ├─ Load call history & context (15-30s)                        │
+│  ├─ Cache in preloaded_context dictionary                       │
+│  └─ Twilio API: Place outbound call                             │
 └────────────────────┬────────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                  TELEPHONY LAYER                                 │
 │  Twilio Media Streams (WebSocket)                                │
-│  └─ Real-time bidirectional audio streaming (mulaw PCM)         │
+│  └─ Real-time bidirectional audio streaming (mulaw PCM, 8kHz)   │
 └────────────────────┬────────────────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │               AI PROCESSING LAYER                                │
 │  Python Backend (twilio_websocket_server.py)                    │
+│  ├─ Check preloaded_context (instant if cached!)                │
+│  ├─ Adaptive VAD: Learn ambient noise (first 6 seconds)         │
 │  ├─ Azure Speech STT: Audio → Text                              │
 │  ├─ Azure OpenAI GPT-5: Generate AI responses                   │
-│  ├─ Azure Speech TTS: Text → Audio (en-US-JasonNeural)         │
+│  ├─ TTS Normalization: Remove CAPS and !!!                      │
+│  ├─ Azure Speech TTS: Text → Audio (en-US-SaraNeural)          │
 │  └─ Real-time conversation orchestration                        │
 └────────────────────┬────────────────────────────────────────────┘
                      │
@@ -55,6 +61,30 @@ The system makes outbound phone calls to seniors, conducts natural conversations
 │  └─ Real-time health metrics, alerts, cognitive trends          │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Key Improvements (Latest Version)
+
+**1. Pre-loaded Context** (`/initiate-call` endpoint)
+- Loads senior profile and call history BEFORE placing call
+- Caches in memory (15-30s delay happens before call, not after answer)
+- When senior answers → greeting plays immediately!
+
+**2. Adaptive Voice Activity Detection (VAD)**
+- Learns ambient noise during first 6 seconds of call
+- Sets threshold to 2.5x ambient (minimum 0.002)
+- Handles variable phone audio levels (0.0001 - 0.0210 RMS)
+- Prevents false positives from TV/background noise
+
+**3. TTS Text Normalization**
+- Removes excessive enthusiasm: "WONDERFUL!!!" → "Wonderful!"
+- Converts SHOUTING CAPS to Title Case
+- Preserves acronyms (OK, TV, GPS, USA)
+- Results in natural, calm conversational tone
+
+**4. No Cold Starts**
+- Min replicas: 1 (always warm)
+- Startup warmup for Speech + OpenAI services
+- Container ready in < 2 seconds
 
 ---
 

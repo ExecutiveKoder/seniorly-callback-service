@@ -22,22 +22,29 @@ Complete guide to replicate this Azure-based voice agent architecture for senior
 ## 🏗️ Architecture
 
 ```
-┌──────────────┐
-│ AWS Connect  │ Outbound call to senior's phone
-│ +1833XXXXXX  │
-└──────┬───────┘
+┌──────────────────────────────────────────┐
+│ Call Initiation                          │
+│ POST /initiate-call                      │
+│  ├─ Pre-load context (15-30s)            │
+│  ├─ Cache senior profile & history       │
+│  └─ Place Twilio outbound call           │
+└──────┬───────────────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────────┐
 │ Twilio Media Streams (WebSocket)         │
 │ Real-time bidirectional audio streaming  │
+│ wss://.../media-stream                   │
 └──────┬───────────────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────────┐
 │ Python Backend (Azure Container Apps)    │
+│  ├─ Min Replicas: 1 (no cold starts)     │
+│  ├─ Adaptive VAD (learns ambient noise)  │
 │  ├─ Azure Speech: STT (speech → text)    │
 │  ├─ Azure OpenAI GPT-5: AI responses     │
+│  ├─ TTS Normalization (natural tone)     │
 │  ├─ Azure Speech: TTS (text → speech)    │
 │  └─ Analytics Service: Extract metrics   │
 └──────┬───────────────────────────────────┘
@@ -47,15 +54,22 @@ Complete guide to replicate this Azure-based voice agent architecture for senior
 │ Data Layer                               │
 │  ├─ Cosmos DB: Conversations, profiles   │
 │  ├─ Redis: Session state, caching        │
-│  └─ SQL: Analytics, dashboard metrics    │
+│  └─ PostgreSQL: Analytics, vitals        │
 └──────────────────────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────────┐
 │ Next.js Dashboard                        │
-│  └─ Read from SQL for health analytics   │
+│  └─ Real-time health metrics & alerts    │
 └──────────────────────────────────────────┘
 ```
+
+**Key Features:**
+- ✅ **Pre-loaded Context**: Load senior history BEFORE calling (eliminates 30s delay)
+- ✅ **Adaptive Voice Detection**: Learns ambient noise per call (handles variable phone audio)
+- ✅ **Natural TTS**: Normalizes overly enthusiastic AI responses for calm speech
+- ✅ **No Cold Starts**: Min replicas = 1, always warm
+- ✅ **Sustained Speech Gating**: Requires valid speech before processing (reduces false positives)
 
 ---
 
@@ -802,22 +816,99 @@ def check_call_duration():
 
 ---
 
-## 🚀 Deployment Steps
+## 🌐 API Endpoints
 
-### 1. Build Backend Docker Image
+**Base URL**: `https://voice-agent-backend.grayriver-5405228a.eastus2.azurecontainerapps.io`
+
+### Health Check
 ```bash
-cd backend
-docker build -t myvoiceagentacr.azurecr.io/voice-agent:latest .
-docker push myvoiceagentacr.azurecr.io/voice-agent:latest
+GET /health
+```
+Returns service status and readiness of all components (Speech, OpenAI, Data, Agent).
+
+### Initiate Call (Pre-loaded Context)
+```bash
+POST /initiate-call
+Content-Type: application/json
+
+{
+  "phone_number": "289-324-2125"
+}
 ```
 
-### 2. Deploy to Azure Container Apps
+**Flow:**
+1. Loads senior profile and call history from Cosmos DB (15-30 seconds)
+2. Caches context in memory (preloaded_context dictionary)
+3. Places Twilio outbound call
+4. When senior answers, greeting plays immediately (no delay!)
+
+**Response:**
+```json
+{
+  "success": true,
+  "call_sid": "CAxxxx...",
+  "message": "Call initiated successfully (context pre-loaded)"
+}
+```
+
+### Voice Webhook (Twilio)
+```bash
+POST /voice
+```
+Handles incoming Twilio call events and returns TwiML to start Media Stream WebSocket.
+
+### Media Stream (WebSocket)
+```bash
+WSS /media-stream
+```
+Real-time bidirectional audio streaming with Twilio. Handles:
+- Audio chunk reception (mulaw PCM, 8kHz)
+- Adaptive VAD (learns ambient noise in first 6 seconds)
+- STT → GPT-5 → TTS pipeline
+- TTS text normalization (removes CAPS, multiple !!!)
+
+---
+
+## 🚀 Deployment Steps
+
+### Quick Deploy Script
+```bash
+cd backend
+./deploy_to_azure.sh
+```
+
+This script handles:
+- Building Docker image for linux/amd64
+- Pushing to Azure Container Registry
+- Updating Container App with new image
+- Setting min replicas = 1 (no cold starts)
+
+### Manual Deployment
+
+#### 1. Build Backend Docker Image (linux/amd64)
+```bash
+cd backend
+docker buildx build --platform linux/amd64 --load \
+  -t myvoiceagentacr-b7cwcyd4deh0f5ec.azurecr.io/voice-agent:latest .
+```
+
+#### 2. Push to Azure Container Registry
+```bash
+az acr login --name myvoiceagentacr
+docker push myvoiceagentacr-b7cwcyd4deh0f5ec.azurecr.io/voice-agent:latest
+```
+
+#### 3. Deploy to Azure Container Apps
 ```bash
 az containerapp update \
   --name voice-agent-backend \
   --resource-group voice-agent-rg \
-  --image myvoiceagentacr.azurecr.io/voice-agent:latest
+  --image myvoiceagentacr-b7cwcyd4deh0f5ec.azurecr.io/voice-agent:latest \
+  --min-replicas 1 \
+  --max-replicas 3
 ```
+
+**Important**: Always set `--min-replicas 1` to avoid cold starts!
 
 ### 3. Build Frontend
 ```bash
