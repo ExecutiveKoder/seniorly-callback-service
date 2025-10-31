@@ -2,14 +2,18 @@
 """
 Twilio WebSocket Server for Real-Time Voice with Azure Speech
 Integrated with SeniorHealthAgent for full conversation management
-Version: 2.5 - Enhanced multi-layer noise filtering for close-proximity speech detection
+Version: 2.6 - Balanced noise filtering + timeout handling
 
-NOISE FILTERING IMPROVEMENTS:
-- Layer 1: RMS energy threshold increased to 0.05 (requires louder audio = closer to mic)
+NOISE FILTERING:
+- Layer 1: RMS energy threshold 0.03 (balanced for phone audio levels)
 - Layer 2: Zero-crossing rate (detects speech patterns vs TV/music)
 - Layer 3: Dynamic range detection (speech has peaks/valleys, noise is uniform)
 - Layer 4: Spectral centroid (checks frequency content for human speech range)
-- Sustained speech requirement: Requires 2 consecutive chunks (~4 seconds) before processing
+- Sustained speech requirement: 1 chunk (2 seconds) before processing
+
+TIMEOUT HANDLING:
+- After 10 seconds of silence: Prompts "I'm sorry, I didn't catch that. Could you please speak a bit louder?"
+- After 3 failed prompts: Ends call with "I'm having trouble hearing you. Let's try again another time. Goodbye!"
 """
 import sys
 from pathlib import Path
@@ -42,7 +46,7 @@ app = FastAPI(title="Twilio WebSocket Server")
 # Initialize SeniorHealthAgent (same as local version)
 agent = None
 
-def has_significant_audio(pcm_data: bytes, threshold: float = 0.05) -> bool:
+def has_significant_audio(pcm_data: bytes, threshold: float = 0.03) -> bool:
     """
     Multi-layer audio detection to filter background noise and ensure close proximity speech.
 
@@ -342,7 +346,9 @@ async def media_stream(websocket: WebSocket):
     agent_is_speaking = False  # Flag to ignore incoming audio while agent speaks
     silence_counter = 0  # Track consecutive silence chunks
     speech_counter = 0  # Track consecutive speech chunks
-    SPEECH_CHUNKS_REQUIRED = 2  # Require 2 consecutive chunks of valid speech (~4 seconds total)
+    SPEECH_CHUNKS_REQUIRED = 1  # Require 1 chunk of valid speech (reduced from 2)
+    no_response_attempts = 0  # Track how many times we've asked user to respond
+    MAX_NO_RESPONSE_ATTEMPTS = 3  # End call after 3 failed prompts
 
     # Get phone number from query params (will be passed by run_app.sh)
     # For now, use a default for testing
@@ -439,17 +445,40 @@ async def media_stream(websocket: WebSocket):
                     pcm_data = audioop.ulaw2lin(bytes(audio_buffer), 2)
 
                     # Check if audio has significant volume (filters background TV noise)
-                    # Threshold 0.05 = requires louder audio = person must be close to phone
-                    if not has_significant_audio(pcm_data, threshold=0.05):
+                    # Threshold 0.03 = balanced for phone audio levels
+                    if not has_significant_audio(pcm_data, threshold=0.03):
                         logger.info("🔇 Background noise detected, ignoring")
                         audio_buffer.clear()
                         speech_counter = 0  # Reset speech counter
                         silence_counter += 1
+
+                        # After 10 seconds of silence (5 chunks x 2 seconds), prompt user
+                        if silence_counter >= 5:
+                            no_response_attempts += 1
+                            logger.info(f"⏱️ No response detected (attempt {no_response_attempts}/{MAX_NO_RESPONSE_ATTEMPTS})")
+
+                            if no_response_attempts >= MAX_NO_RESPONSE_ATTEMPTS:
+                                # End call after 3 attempts
+                                goodbye_msg = "I'm having trouble hearing you. Let's try again another time. Goodbye!"
+                                logger.info("Ending call due to no response")
+                                await send_audio_to_twilio(websocket, stream_sid, goodbye_msg)
+                                await asyncio.sleep(3)
+                                break
+                            else:
+                                # Prompt user to speak up
+                                prompt_msg = "I'm sorry, I didn't catch that. Could you please speak a bit louder?"
+                                logger.info("Prompting user to speak louder")
+                                agent_is_speaking = True
+                                await send_audio_to_twilio(websocket, stream_sid, prompt_msg)
+                                agent_is_speaking = False
+                                silence_counter = 0  # Reset after prompting
+
                         continue
 
                     # Valid speech detected - increment counter
                     speech_counter += 1
                     silence_counter = 0
+                    no_response_attempts = 0  # Reset timeout counter when speech is detected
 
                     # Require sustained speech before processing (prevents brief background noises)
                     if speech_counter < SPEECH_CHUNKS_REQUIRED:
