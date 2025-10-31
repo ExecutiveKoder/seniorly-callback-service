@@ -61,7 +61,7 @@ class Config:
     # Azure Speech Services
     AZURE_SPEECH_ENDPOINT = os.getenv('AZURE_SPEECH_ENDPOINT', '').strip('"')
     AZURE_SPEECH_KEY = get_secret('AzureSpeechKey', 'AZURE_SPEECH_KEY')
-    AZURE_SPEECH_KEY2 = os.getenv('AZURE_SPEECH_KEY2', '').strip('"')
+    AZURE_SPEECH_KEY2 = get_secret('AzureSpeechKey', 'AZURE_SPEECH_KEY2')  # Use primary key as fallback
     AZURE_SPEECH_REGION = os.getenv('AZURE_SPEECH_REGION', 'eastus2')
 
     # Azure AI Search
@@ -90,7 +90,7 @@ class Config:
     # Azure Container Registry
     ACR_LOGIN_SERVER = os.getenv('ACR_LOGIN_SERVER', '').strip("'")
     ACR_USERNAME = os.getenv('ACR_USERNAME', '').strip("'")
-    ACR_PASSWORD = os.getenv('ACR_PASSWORD', '').strip("'")
+    ACR_PASSWORD = get_secret('ACRPassword', 'ACR_PASSWORD')
 
     # Azure Communication Services
     ACS_CONNECTION_STRING = get_secret('AzureCommunicationString', 'ACS_CONNECTION_STRING')

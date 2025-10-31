@@ -8,14 +8,28 @@ from pathlib import Path
 # Database connection details (from environment)
 import os
 from dotenv import load_dotenv
+from azure.keyvault.secrets import SecretClient
+from azure.identity import DefaultAzureCredential
 
 # Load .env file
 load_dotenv()
 
+# Initialize Key Vault client
+KEY_VAULT_NAME = os.getenv('AZURE_KEY_VAULT_NAME', 'seniorly-secrets')
+KEY_VAULT_URL = f"https://{KEY_VAULT_NAME}.vault.azure.net"
+
+try:
+    credential = DefaultAzureCredential()
+    secret_client = SecretClient(vault_url=KEY_VAULT_URL, credential=credential)
+    password = secret_client.get_secret('AzureSQLPassword').value.strip("'\"")
+except Exception as e:
+    print(f"Warning: Could not get password from Key Vault: {e}")
+    print("Falling back to .env file (NOT HIPAA COMPLIANT)")
+    password = os.getenv('AZURE_SQL_PASSWORD', 'YourSecurePassword123!').strip("'")
+
 server = os.getenv('AZURE_SQL_SERVER', 'seniorly-sql-server.database.windows.net').strip("'")
 database = os.getenv('AZURE_SQL_DATABASE', 'SeniorHealthAnalytics').strip("'")
 username = os.getenv('AZURE_SQL_USERNAME', 'sqladmin').strip("'")
-password = os.getenv('AZURE_SQL_PASSWORD', 'YourSecurePassword123!').strip("'")
 
 connection_string = (
     f"Driver={{ODBC Driver 18 for SQL Server}};"
