@@ -44,8 +44,10 @@ class OpenAIService:
             azure_endpoint=base_endpoint
         )
 
-        # Conversation history for context
+        # Conversation history for context (trimmed for performance)
         self.conversation_history: List[Dict[str, str]] = []
+        # Full conversation history (kept for summary generation)
+        self.full_conversation_history: List[Dict[str, str]] = []
 
         # System prompt for voice agent
         self.system_prompt = """You are a helpful and friendly AI voice assistant.
@@ -65,6 +67,27 @@ Be warm, engaging, and professional."""
         self.system_prompt = prompt
         logger.info("System prompt updated")
 
+    def trim_conversation_history(self, max_turns: int = 8):
+        """
+        Trim conversation history to prevent lag and token overflow.
+        Keeps the most recent exchanges while preserving initial context.
+
+        Args:
+            max_turns: Maximum number of user-assistant turn pairs to keep (default: 8)
+        """
+        # Separate system messages (context) from conversation
+        system_messages = [msg for msg in self.conversation_history if msg["role"] == "system"]
+        conversation = [msg for msg in self.conversation_history if msg["role"] != "system"]
+
+        # Keep only the last N turns (each turn = user + assistant message)
+        max_messages = max_turns * 2  # 2 messages per turn
+        if len(conversation) > max_messages:
+            conversation = conversation[-max_messages:]
+            logger.info(f"Trimmed conversation history to last {max_turns} turns")
+
+        # Reconstruct: system messages first, then recent conversation
+        self.conversation_history = system_messages + conversation
+
     def chat(self, user_message: str, temperature: float = 0.7, max_tokens: int = 500) -> Optional[str]:
         """
         Send a message to GPT-5-CHAT and get a response
@@ -78,11 +101,10 @@ Be warm, engaging, and professional."""
             AI response text or None if error
         """
         try:
-            # Add user message to conversation history
-            self.conversation_history.append({
-                "role": "user",
-                "content": user_message
-            })
+            # Add user message to BOTH histories
+            user_msg = {"role": "user", "content": user_message}
+            self.conversation_history.append(user_msg)
+            self.full_conversation_history.append(user_msg)
 
             # Build messages array with system prompt and history
             messages = [{"role": "system", "content": self.system_prompt}]
@@ -105,11 +127,13 @@ Be warm, engaging, and professional."""
             # Extract assistant response
             assistant_message = response.choices[0].message.content
 
-            # Add assistant response to conversation history
-            self.conversation_history.append({
-                "role": "assistant",
-                "content": assistant_message
-            })
+            # Add assistant response to BOTH histories
+            assistant_msg = {"role": "assistant", "content": assistant_message}
+            self.conversation_history.append(assistant_msg)
+            self.full_conversation_history.append(assistant_msg)
+
+            # Trim working history to prevent lag (keep full history for summary)
+            self.trim_conversation_history(max_turns=8)
 
             logger.info(f"Received response: {assistant_message[:50]}...")
             return assistant_message
@@ -239,16 +263,17 @@ Please answer the user's question using the context provided above. If the conte
 
     def generate_call_summary(self) -> str:
         """
-        Generate an AI-powered summary of the call for context in future calls
+        Generate an AI-powered summary of the call for context in future calls.
+        Uses the FULL conversation history (not trimmed) for comprehensive summary.
 
         Returns:
             AI-generated summary suitable for use in next call's context
         """
-        if not self.conversation_history:
+        if not self.full_conversation_history:
             return "No conversation occurred"
 
-        # Filter out system messages for summary
-        user_messages = [msg for msg in self.conversation_history if msg['role'] in ['user', 'assistant']]
+        # Filter out system messages for summary (use full history for complete summary)
+        user_messages = [msg for msg in self.full_conversation_history if msg['role'] in ['user', 'assistant']]
 
         if len(user_messages) < 2:
             return "Brief call, no significant content to summarize"
@@ -261,20 +286,25 @@ Please answer the user's question using the context provided above. If the conte
 
         summary_prompt = f"""You are summarizing a wellness check-in call with a senior for medical record purposes.
 
-Review this conversation and create a COMPREHENSIVE, DETAILED summary (1-2 paragraphs) that will be useful for the NEXT call and for tracking the senior's health over time.
+Review this conversation and create a COMPREHENSIVE, DETAILED summary (2-3 paragraphs) that will be useful for the NEXT call and for tracking the senior's health over time.
 
 Include ALL relevant details about:
 - Physical health: Any pain, symptoms, discomfort, sleep quality, energy levels, appetite
 - Medications: What they're taking, adherence, any side effects mentioned
 - Mental/Emotional state: Mood, affect, signs of depression/anxiety, social engagement
-- Daily activities: What they did, mobility, independence level
+- Daily activities: What they did, mobility, independence level, physical activity/walking
 - Social connections: Family visits, phone calls, social activities
-- Upcoming events: Doctor appointments, family visits, plans
+- Upcoming events: Doctor appointments, family visits, plans, reminders
 - Concerns expressed: Worries, fears, questions they had
 - Cognitive observations: Memory, orientation, coherence of responses
+- **PERSONAL DETAILS (CRITICAL - include if mentioned):**
+  * Pets: Names, types, if they walked/played with them
+  * Family: Names of children, grandchildren, spouse mentioned
+  * Hobbies/Interests: Activities they enjoy, TV shows, books
+  * Appointments/Reminders: Specific dates for doctor visits, events, family visits
 - Any red flags or items requiring follow-up
 
-Write as if you're a healthcare provider documenting the encounter. Be specific and detailed.
+Write as if you're a healthcare provider documenting the encounter. Be specific and detailed. Include names and specific details that show we remember the person as an individual, not just a patient.
 
 Conversation:
 {transcript}
