@@ -51,6 +51,10 @@ app = FastAPI(title="Twilio WebSocket Server")
 # Initialize SeniorHealthAgent (same as local version)
 agent = None
 
+# Track which phone numbers have pre-loaded context
+# Format: {phone_number: {senior_name, senior_id, context_loaded_at}}
+preloaded_context = {}
+
 def has_significant_audio(pcm_data: bytes, threshold: float = 0.015) -> bool:
     """
     Multi-layer audio detection to filter background noise and ensure close proximity speech.
@@ -268,6 +272,108 @@ async def health_check():
         }
     }
 
+@app.post("/initiate-call")
+async def initiate_call(request: Request):
+    """
+    Initiate outbound call with pre-loaded context
+
+    Request body (JSON):
+    {
+        "phone_number": "289-324-2125",
+        "senior_id": "optional-senior-id"
+    }
+    """
+    try:
+        body = await request.json()
+        phone_number = body.get('phone_number')
+
+        if not phone_number:
+            return Response(
+                content=json.dumps({"success": False, "error": "phone_number required"}),
+                status_code=400,
+                media_type="application/json"
+            )
+
+        logger.info(f"🚀 Call initiation requested (phone suppressed)")
+
+        # STEP 1: Load context BEFORE placing call (this takes 15-30 seconds)
+        logger.info("📚 Loading senior context...")
+        from src.services.profile_service import SeniorProfileService
+
+        profile_service = SeniorProfileService(
+            endpoint=config.AZURE_COSMOS_ENDPOINT,
+            key=config.AZURE_COSMOS_KEY,
+            database_name=config.COSMOS_DATABASE
+        )
+
+        profile = profile_service.get_senior_by_phone(phone_number)
+
+        if not profile:
+            logger.warning(f"Senior profile not found")
+            senior_name = None
+            senior_id = None
+        else:
+            senior_id = profile['seniorId']
+            full_name = profile['fullName']
+            senior_name = full_name.split()[0] if full_name else None
+            logger.info(f"✅ Profile loaded (name suppressed)")
+
+        # Load call history into agent's memory
+        context_loaded = agent._load_senior_context(phone_number)
+        logger.info(f"✅ Context loaded: {context_loaded}")
+
+        # Store preloaded context for this phone number
+        import time
+        preloaded_context[phone_number] = {
+            "senior_name": senior_name,
+            "senior_id": senior_id,
+            "context_loaded_at": time.time()
+        }
+        logger.info(f"✅ Context cached for phone number")
+
+        # STEP 2: NOW place the call (context is already in memory)
+        logger.info("📞 Placing call...")
+        from src.services.twilio_service import TwilioService
+
+        twilio_service = TwilioService(
+            account_sid=config.TWILIO_ACCOUNT_SID,
+            auth_token=config.TWILIO_AUTH_TOKEN,
+            phone_number=config.TWILIO_PHONE_NUMBER
+        )
+
+        # Get the webhook URL (use Azure Container Apps URL)
+        host = "voice-agent-backend.grayriver-5405228a.eastus2.azurecontainerapps.io"
+        webhook_url = f"https://{host}/voice"
+
+        call_result = twilio_service.initiate_outbound_call(
+            destination_phone=phone_number,
+            webhook_url=webhook_url,
+            senior_name=senior_name or "there"
+        )
+
+        if call_result['success']:
+            logger.info(f"✅ Call initiated - SID: {call_result['call_sid']}")
+            return {
+                "success": True,
+                "call_sid": call_result['call_sid'],
+                "message": "Call initiated successfully (context pre-loaded)"
+            }
+        else:
+            logger.error(f"❌ Call failed: {call_result.get('error')}")
+            return Response(
+                content=json.dumps({"success": False, "error": call_result.get('error')}),
+                status_code=500,
+                media_type="application/json"
+            )
+
+    except Exception as e:
+        logger.error(f"Failed to initiate call: {e}")
+        return Response(
+            content=json.dumps({"success": False, "error": str(e)}),
+            status_code=500,
+            media_type="application/json"
+        )
+
 @app.post("/voice/status")
 async def voice_status(request: Request):
     """Handle Twilio status callbacks"""
@@ -350,29 +456,41 @@ async def media_stream(websocket: WebSocket):
                 senior_id = None
                 context_loaded = False
 
-                try:
-                    t1 = time.time()
-                    profile_service = SeniorProfileService(
-                        endpoint=config.AZURE_COSMOS_ENDPOINT,
-                        key=config.AZURE_COSMOS_KEY,
-                        database_name=config.COSMOS_DATABASE
-                    )
-                    logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Profile service initialized")
+                # Check if context was already preloaded via /initiate-call endpoint
+                if phone_number in preloaded_context:
+                    cached = preloaded_context[phone_number]
+                    senior_name = cached["senior_name"]
+                    senior_id = cached["senior_id"]
+                    context_loaded = True
+                    logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Using PRE-LOADED context (no delay!)")
+                    # Remove from cache after use
+                    del preloaded_context[phone_number]
+                else:
+                    # Context not preloaded, load it now (will take 15-30 seconds)
+                    logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Context NOT preloaded, loading now...")
+                    try:
+                        t1 = time.time()
+                        profile_service = SeniorProfileService(
+                            endpoint=config.AZURE_COSMOS_ENDPOINT,
+                            key=config.AZURE_COSMOS_KEY,
+                            database_name=config.COSMOS_DATABASE
+                        )
+                        logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Profile service initialized")
 
-                    profile = profile_service.get_senior_by_phone(phone_number)
-                    logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Profile lookup complete")
+                        profile = profile_service.get_senior_by_phone(phone_number)
+                        logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Profile lookup complete")
 
-                    if profile:
-                        senior_id = profile['seniorId']
-                        full_name = profile['fullName']
-                        senior_name = full_name.split()[0] if full_name else None
-                        logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Profile parsed")
-                except Exception as e:
-                    logger.error(f"Could not get senior profile: {e}")
+                        if profile:
+                            senior_id = profile['seniorId']
+                            full_name = profile['fullName']
+                            senior_name = full_name.split()[0] if full_name else None
+                            logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Profile parsed")
+                    except Exception as e:
+                        logger.error(f"Could not get senior profile: {e}")
 
-                # Load senior context (call history)
-                context_loaded = agent._load_senior_context(phone_number)
-                logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Context loaded: {context_loaded}")
+                    # Load senior context (call history)
+                    context_loaded = agent._load_senior_context(phone_number)
+                    logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Context loaded: {context_loaded}")
 
                 # Start session with name and ID
                 agent.start_new_session(senior_name=senior_name, senior_id=senior_id)
