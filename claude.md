@@ -520,31 +520,48 @@ az containerapp show \
 
 ---
 
-## 🎧 Real-Time Voice Tuning (VAD + Latency)
+## 🎧 Real-Time Voice Tuning (WebRTC VAD + Latency)
 
-### Voice Activity Detection (VAD) Environment Variables
+### Standard VAD baseline (recommended)
+- Engine: WebRTC VAD (8 kHz, 16‑bit PCM, 20 ms frames)
+- Aggressiveness: `2` (0=most permissive, 3=most strict)
+- Debounce/hangover (frame-based):
+  - Speech ON: require ≥8 voiced frames in a 10‑frame window (≈200 ms)
+  - Speech OFF: require 15 consecutive unvoiced frames (≈300 ms)
+- Duplex control: mute mic during TTS + 600 ms cooldown
+- Prompting: no “didn’t catch that” for 5 s after TTS; prompt if ~5 s of silence
 
-Add these to the Container App (or `.env` for local), adjustable per deployment:
-
+### Environment variables
 ```
-VAD_DEBUG=true                 # Log per-chunk metrics (no PHI)
-VAD_ENABLE_ZCR=true            # Enable zero-crossing rate gate
-VAD_ZCR_MIN=0.02               # Lower bound for speech-like ZCR
-VAD_ZCR_MAX=0.25               # Upper bound for speech-like ZCR
-VAD_MIN_THRESHOLD=0.008        # Minimum RMS floor for detection (0.006–0.012 typical)
-VAD_AMBIENT_MULTIPLIER=2.2     # Multiplier × ambient RMS (2.0–3.5 typical)
-VAD_SUSTAINED_CHUNKS=2         # Chunks (≈2s per chunk) required before STT
-VAD_COOLDOWN_MS=1200           # Post‑TTS input cooldown to avoid echo
-VAD_PROMPT_GRACE_SECONDS=10    # Delay before any “can’t hear you” prompt
-VAD_MIN_VARIANCE=1e-5          # Min variance across subwindows to reject steady hum
+# Core WebRTC VAD
+VAD_USE_WEBRTC=true
+VAD_AGGRESSIVENESS=2          # 0..3 (raise to 3 if noisy, drop to 1 if too strict)
+VAD_ON_WINDOW_FRAMES=10       # 10 frames ≈ 200 ms
+VAD_ON_MIN_VOICED=8           # voiced frames required in window
+VAD_OFF_CONSEC_UNVOICED=15    # ≈ 300 ms to end speech
+
+# Timing/latency
+VAD_CHUNK_BYTES=4000          # ~0.5 s chunking for faster turns
+VAD_COOLDOWN_MS=600           # post‑TTS input cooldown
+VAD_PROMPT_GRACE_SECONDS=5    # min time after TTS before prompting
+VAD_SILENCE_CHUNKS_TO_PROMPT=10  # ~5 s silence before prompt
+
+# Fallback (RMS) gate if VAD errors
+VAD_MIN_THRESHOLD=0.006       # 0.004–0.012 typical
+VAD_AMBIENT_MULTIPLIER=1.5    # 1.3–3.5 typical
+VAD_AMBIENT_LEARNING_CHUNKS=2 # quick ambient calibration
+VAD_DEBUG=true                # logs metrics (no PHI)
 ```
 
-Recommended defaults above are balanced for phone audio to reduce false accepts while not requiring users to raise their voice. Lower `VAD_MIN_THRESHOLD`/`VAD_AMBIENT_MULTIPLIER` for quieter users; raise them to fight noisy environments.
+Tuning tips
+- “Too deaf” (must speak loudly): lower `VAD_AGGRESSIVENESS` to 1, or relax ON window (7/10); optionally reduce fallback `VAD_MIN_THRESHOLD`/`VAD_AMBIENT_MULTIPLIER`.
+- “Hears background/TV”: raise `VAD_AGGRESSIVENESS` to 3, or increase `VAD_ON_MIN_VOICED` to 9; consider lengthening `VAD_OFF_CONSEC_UNVOICED`.
+- “Prompts too fast/slow”: adjust `VAD_PROMPT_GRACE_SECONDS` (min time after TTS) and `VAD_SILENCE_CHUNKS_TO_PROMPT` (silence before prompt).
 
 ### Turn-Taking and Latency
 
-- Processing window reduced to ≈1s (was ≈2s) for faster acknowledgements
-- Serialized STT→LLM→TTS with a processing lock (prevents overlapping prompts)
+- Processing window ~0.5 s for quicker acknowledgements
+- Serialized STT→LLM→TTS with a processing lock to prevent overlaps
 - Input is muted during TTS and for a short cooldown after playback
 
 ### Deployment Notes (Azure Container Apps)

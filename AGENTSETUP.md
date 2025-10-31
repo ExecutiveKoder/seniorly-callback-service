@@ -303,6 +303,11 @@ az containerapp create \
 - Keep the app warm by pinging `/health` every 1–5 minutes (optional).
 - The launcher `run_app.sh` auto-prepends `https://` to `.azure_endpoint` if it contains only the FQDN.
 
+### VAD Tuning Notes
+- If the agent struggles to hear: try `VAD_AGGRESSIVENESS=1` or lower `VAD_ON_MIN_VOICED` to 7.
+- If it hears background/TV: try `VAD_AGGRESSIVENESS=3` or raise `VAD_ON_MIN_VOICED` to 9.
+- Prompt timing: adjust `VAD_PROMPT_GRACE_SECONDS` (after TTS) and `VAD_SILENCE_CHUNKS_TO_PROMPT` (silence before prompt).
+
 ---
 
 ## 📞 AWS Connect Setup
@@ -413,17 +418,20 @@ TWILIO_ACCOUNT_SID=xxx
 TWILIO_AUTH_TOKEN=xxx
 TWILIO_PHONE_NUMBER=+18668119355
 
-# Voice Activity Detection (VAD) and Latency (recommended defaults)
+# WebRTC Voice Activity Detection (VAD) and Latency (recommended defaults)
+VAD_USE_WEBRTC=true
+VAD_AGGRESSIVENESS=2
+VAD_ON_WINDOW_FRAMES=10
+VAD_ON_MIN_VOICED=8
+VAD_OFF_CONSEC_UNVOICED=15
+VAD_CHUNK_BYTES=4000
+VAD_COOLDOWN_MS=600
+VAD_PROMPT_GRACE_SECONDS=5
+VAD_SILENCE_CHUNKS_TO_PROMPT=10
+VAD_MIN_THRESHOLD=0.006
+VAD_AMBIENT_MULTIPLIER=1.5
+VAD_AMBIENT_LEARNING_CHUNKS=2
 VAD_DEBUG=true
-VAD_ENABLE_ZCR=true
-VAD_ZCR_MIN=0.02
-VAD_ZCR_MAX=0.25
-VAD_MIN_THRESHOLD=0.008
-VAD_AMBIENT_MULTIPLIER=2.2
-VAD_SUSTAINED_CHUNKS=2
-VAD_COOLDOWN_MS=1200
-VAD_PROMPT_GRACE_SECONDS=10
-VAD_MIN_VARIANCE=1e-5
 ```
 
 ---

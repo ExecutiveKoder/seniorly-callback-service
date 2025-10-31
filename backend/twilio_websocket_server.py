@@ -37,6 +37,7 @@ import os
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import Response
 import uvicorn
+import webrtcvad
 
 from src.config import config
 from src.main import SeniorHealthAgent
@@ -68,6 +69,15 @@ VAD_SUSTAINED_CHUNKS = int(os.getenv('VAD_SUSTAINED_CHUNKS', '2'))
 VAD_COOLDOWN_MS = int(os.getenv('VAD_COOLDOWN_MS', '1000'))
 VAD_PROMPT_GRACE_SECONDS = float(os.getenv('VAD_PROMPT_GRACE_SECONDS', '8.0'))
 VAD_MIN_VARIANCE = float(os.getenv('VAD_MIN_VARIANCE', '1e-5'))
+# Additional timing/env tuning
+VAD_CHUNK_BYTES = int(os.getenv('VAD_CHUNK_BYTES', '4000'))  # ~0.5s at 8kHz
+VAD_SILENCE_CHUNKS_TO_PROMPT = int(os.getenv('VAD_SILENCE_CHUNKS_TO_PROMPT', '6'))
+VAD_AMBIENT_LEARNING_CHUNKS = int(os.getenv('VAD_AMBIENT_LEARNING_CHUNKS', '2'))
+VAD_USE_WEBRTC = os.getenv('VAD_USE_WEBRTC', 'true').lower() == 'true'
+VAD_AGGRESSIVENESS = int(os.getenv('VAD_AGGRESSIVENESS', '2'))  # 0..3
+VAD_ON_WINDOW_FRAMES = int(os.getenv('VAD_ON_WINDOW_FRAMES', '10'))  # 10 frames = 200 ms
+VAD_ON_MIN_VOICED = int(os.getenv('VAD_ON_MIN_VOICED', '8'))       # 8 -> 80% in window
+VAD_OFF_CONSEC_UNVOICED = int(os.getenv('VAD_OFF_CONSEC_UNVOICED', '15'))  # 300 ms
 
 def compute_zero_crossing_rate(normalized: np.ndarray) -> float:
     """Compute zero-crossing rate over the whole window."""
@@ -147,6 +157,40 @@ def has_significant_audio(pcm_data: bytes, threshold: float = 0.015) -> bool:
         logger.error(f"Error checking audio level: {e}")
         return False  # Be conservative on error
 
+
+def is_speech_webrtc(pcm_data: bytes) -> bool:
+    """Use WebRTC VAD on 20 ms frames at 8 kHz 16-bit PCM (mono, little-endian)."""
+    try:
+        if len(pcm_data) < 320:  # one 20ms frame at 8kHz
+            return False
+        vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
+        frame_size = 320  # bytes (20 ms * 160 samples * 2 bytes)
+        total_frames = len(pcm_data) // frame_size
+        if total_frames == 0:
+            return False
+        voiced = []
+        # Evaluate each 20ms frame
+        for i in range(0, total_frames * frame_size, frame_size):
+            frame = pcm_data[i:i + frame_size]
+            if len(frame) < frame_size:
+                break
+            is_voiced = 1 if vad.is_speech(frame, 8000) else 0
+            voiced.append(is_voiced)
+
+        # Sliding window test for speech onset: require >= VAD_ON_MIN_VOICED in VAD_ON_WINDOW_FRAMES
+        if len(voiced) < VAD_ON_WINDOW_FRAMES:
+            return sum(voiced) >= max(1, VAD_ON_MIN_VOICED // 2)  # short chunks: allow partial
+
+        window = VAD_ON_WINDOW_FRAMES
+        min_voiced = VAD_ON_MIN_VOICED
+        for s in range(0, len(voiced) - window + 1):
+            if sum(voiced[s:s + window]) >= min_voiced:
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"WebRTC VAD error: {e}")
+        return False
+
 def convert_mulaw_to_pcm_wav(mulaw_data: bytes, output_file: str):
     """Convert Twilio's mulaw 8kHz audio to PCM WAV for Azure Speech"""
     try:
@@ -195,12 +239,44 @@ def convert_wav_to_mulaw_base64(wav_data: bytes) -> str:
 
             return base64_audio
 
+def normalize_tts_text(text: str) -> str:
+    """
+    Normalize text for natural TTS output
+    - Remove excessive exclamation marks (keep max 1)
+    - Convert SHOUTING CAPS to normal case (except acronyms)
+    - Remove excessive emphasis
+    """
+    import re
+
+    # Replace multiple exclamation marks with single one
+    text = re.sub(r'!{2,}', '!', text)
+
+    # Replace multiple question marks with single one
+    text = re.sub(r'\?{2,}', '?', text)
+
+    # Fix SHOUTING CAPS: convert words with 3+ caps to title case
+    # (but preserve 2-letter acronyms like "OK", "US", etc.)
+    def fix_caps(match):
+        word = match.group(0)
+        # If it's a known acronym or very short, keep it
+        if len(word) <= 2 or word in ['OK', 'USA', 'GPS', 'TV']:
+            return word
+        # Otherwise convert to title case
+        return word.capitalize()
+
+    text = re.sub(r'\b[A-Z]{3,}\b', fix_caps, text)
+
+    return text
+
 async def send_audio_to_twilio(websocket: WebSocket, stream_sid: str, audio_text: str):
     """Generate speech using Azure TTS and send to Twilio via WebSocket"""
     try:
+        # Normalize text for natural speech (remove excessive emphasis)
+        normalized_text = normalize_tts_text(audio_text)
+
         # Generate speech using agent's speech service (Sara voice at 1.1x speed)
-        logger.info(f"Generating Azure TTS for text (length: {len(audio_text)})")
-        wav_data = agent.speech.synthesize_to_audio_data(audio_text)
+        logger.info(f"Generating Azure TTS for text (length: {len(normalized_text)})")
+        wav_data = agent.speech.synthesize_to_audio_data(normalized_text)
 
         if not wav_data:
             logger.error("Failed to generate Azure TTS audio")
@@ -481,7 +557,7 @@ async def media_stream(websocket: WebSocket):
     ambient_noise_samples = []
     ambient_noise_threshold = VAD_MIN_THRESHOLD  # Minimum threshold to avoid ultra-quiet false triggers
     learning_ambient = True  # Learn ambient noise early
-    AMBIENT_LEARNING_CHUNKS = 3  # Learn from ~6 seconds total
+    AMBIENT_LEARNING_CHUNKS = VAD_AMBIENT_LEARNING_CHUNKS
 
     # Input gating/cooldowns
     input_unmute_at = 0.0       # Time when we accept user input again after TTS
@@ -625,12 +701,12 @@ async def media_stream(websocket: WebSocket):
 
                 # Respect post-TTS cooldown to avoid echo
                 if time.time() < input_unmute_at:
-                    if len(audio_buffer) >= 16000:
+                    if len(audio_buffer) >= VAD_CHUNK_BYTES:
                         audio_buffer.clear()
                     continue
 
-                # Process when we have enough audio (~1 second)
-                if len(audio_buffer) >= 8000 and not is_processing:
+                # Process when we have enough audio (configurable)
+                if len(audio_buffer) >= VAD_CHUNK_BYTES and not is_processing:
                     logger.info(f"Processing audio chunk ({len(audio_buffer)} bytes)")
                     is_processing = True
 
@@ -654,18 +730,27 @@ async def media_stream(websocket: WebSocket):
                                 logger.info(f"✅ Ambient noise learned: avg={avg_ambient:.4f}, threshold={ambient_noise_threshold:.4f}")
 
                         audio_buffer.clear()
+                        is_processing = False
                         continue
 
-                    # Check if audio has significant volume (filters background noise)
-                    # Use adaptive threshold based on learned ambient noise
-                    if not has_significant_audio(pcm_data, threshold=ambient_noise_threshold):
+                    # Gate: Prefer WebRTC VAD when enabled; fallback to RMS-based gate
+                    gate_pass = False
+                    if VAD_USE_WEBRTC:
+                        gate_pass = is_speech_webrtc(pcm_data)
+                        if VAD_DEBUG:
+                            logger.info(f"VAD(webrtc) => {'pass' if gate_pass else 'fail'}")
+                    if not gate_pass:
+                        # Fallback to RMS-based detection with adaptive threshold
+                        gate_pass = has_significant_audio(pcm_data, threshold=ambient_noise_threshold)
+
+                    if not gate_pass:
                         logger.info("🔇 Background noise detected, ignoring")
                         audio_buffer.clear()
                         speech_counter = 0  # Reset speech counter
                         silence_counter += 1
 
                         # After 30 seconds of silence (15 chunks x 2 seconds), prompt user
-                        if silence_counter >= 15 and time.time() >= no_prompt_until:
+                        if silence_counter >= VAD_SILENCE_CHUNKS_TO_PROMPT and time.time() >= no_prompt_until:
                             no_response_attempts += 1
                             logger.info(f"⏱️ No response detected (attempt {no_response_attempts}/{MAX_NO_RESPONSE_ATTEMPTS})")
 
@@ -684,7 +769,11 @@ async def media_stream(websocket: WebSocket):
                                 await send_audio_to_twilio(websocket, stream_sid, prompt_msg)
                                 agent_is_speaking = False
                                 silence_counter = 0  # Reset after prompting
+                                # After prompt, add cooldown and delay before next prompt
+                                input_unmute_at = time.time() + (VAD_COOLDOWN_MS / 1000.0)
+                                no_prompt_until = time.time() + VAD_PROMPT_GRACE_SECONDS
 
+                        is_processing = False
                         continue
 
                     # Valid speech detected - increment counter
@@ -696,6 +785,7 @@ async def media_stream(websocket: WebSocket):
                     if speech_counter < SPEECH_CHUNKS_REQUIRED:
                         logger.info(f"🎤 Speech detected ({speech_counter}/{SPEECH_CHUNKS_REQUIRED} chunks), continuing...")
                         # Don't clear buffer yet - accumulate more speech
+                        is_processing = False
                         continue
 
                     logger.info(f"✅ Sustained speech confirmed, processing...")
@@ -730,6 +820,9 @@ async def media_stream(websocket: WebSocket):
                             agent_is_speaking = True
                             await send_audio_to_twilio(websocket, stream_sid, ai_response)
                             agent_is_speaking = False
+                            # After assistant speaks, add cooldown and delay before any prompt
+                            input_unmute_at = time.time() + (VAD_COOLDOWN_MS / 1000.0)
+                            no_prompt_until = time.time() + VAD_PROMPT_GRACE_SECONDS
 
                     # Clear buffer and reset counters
                     audio_buffer.clear()

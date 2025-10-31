@@ -29,3 +29,4 @@ av==16.0.1
 soundfile==0.13.1
 numpy==2.3.4
 python-multipart==0.0.9
+webrtcvad==2.0.10
