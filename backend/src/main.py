@@ -294,8 +294,21 @@ class SeniorHealthAgent:
                 last_sessions=sessions
             )
 
-            # Combine profile context with dynamic context
-            full_context = context_summary + "\n\n" + dynamic_context
+            # Load upcoming reminders from PostgreSQL
+            reminders_context = ""
+            try:
+                from src.services.reminders_service import RemindersService
+                reminders_service = RemindersService()
+                upcoming_reminders = reminders_service.get_upcoming_reminders(senior_id, days_ahead=7)
+
+                if upcoming_reminders:
+                    reminders_context = "\n\n" + reminders_service.format_reminders_for_context(upcoming_reminders)
+                    print(f"   ✅ Loaded {len(upcoming_reminders)} upcoming reminders")
+            except Exception as reminder_error:
+                logger.warning(f"Could not load reminders: {reminder_error}")
+
+            # Combine profile context with dynamic context and reminders
+            full_context = context_summary + "\n\n" + dynamic_context + reminders_context
 
             # Inject context into AI's conversation memory
             self.openai.conversation_history.insert(0, {

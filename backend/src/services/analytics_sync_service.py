@@ -104,6 +104,79 @@ class AnalyticsSyncService:
             return False
         return None
 
+    def extract_reminders(self, messages: List[Dict]) -> List[Dict]:
+        """
+        Extract reminders, appointments, and upcoming events from conversation
+        Returns list of reminder dicts with: type, title, description, date, priority
+        """
+        from datetime import datetime, timedelta
+        import dateparser
+
+        reminders = []
+
+        # Combine all messages into conversation text
+        conversation_text = " ".join([msg.get('content', '') for msg in messages])
+
+        # Patterns for appointments and events
+        appointment_patterns = [
+            r'\b(doctor|dentist|medical|appointment|checkup|visit)\b.*?\b(next|this|on)\s+(\w+day|\w+\s+\d+)',
+            r'\b(I have|got)\s+(?:a|an)?\s*(appointment|doctor|dentist|checkup)\b.*?\b(next|this|on)\s+(\w+day|\w+\s+\d+)',
+            r'\b(appointment|doctor|dentist)\s+(?:on|this|next)\s+(\w+day|\w+\s+\d+)',
+        ]
+
+        event_patterns = [
+            r'\b(birthday|anniversary|party|gathering|celebration)\b.*?\b(next|this|on)\s+(\w+day|\w+\s+\d+)',
+            r'\b(visiting|visit from|seeing)\s+(?:my\s+)?(family|kids|grandkids|children)\b.*?\b(next|this|on)\s+(\w+day|\w+\s+\d+)',
+        ]
+
+        task_patterns = [
+            r'\bneed to\s+(.*?)\s+(?:by|before|on)\s+(\w+day|\w+\s+\d+)',
+            r'\bremember to\s+(.*?)\s+(?:by|before|on)\s+(\w+day|\w+\s+\d+)',
+        ]
+
+        # Extract appointments
+        for pattern in appointment_patterns:
+            matches = re.finditer(pattern, conversation_text, re.IGNORECASE)
+            for match in matches:
+                try:
+                    date_str = match.group(match.lastindex)
+                    parsed_date = dateparser.parse(date_str, settings={'RELATIVE_BASE': datetime.now()})
+
+                    if parsed_date and parsed_date.date() >= datetime.now().date():
+                        reminders.append({
+                            'type': 'appointment',
+                            'title': 'Medical appointment',
+                            'description': match.group(0)[:200],
+                            'date': parsed_date.date(),
+                            'priority': 'high',
+                            'category': 'doctor'
+                        })
+                except:
+                    pass
+
+        # Extract events
+        for pattern in event_patterns:
+            matches = re.finditer(pattern, conversation_text, re.IGNORECASE)
+            for match in matches:
+                try:
+                    date_str = match.group(match.lastindex)
+                    parsed_date = dateparser.parse(date_str, settings={'RELATIVE_BASE': datetime.now()})
+
+                    if parsed_date and parsed_date.date() >= datetime.now().date():
+                        event_type = match.group(1).lower()
+                        reminders.append({
+                            'type': 'event',
+                            'title': f'{event_type.capitalize()} event',
+                            'description': match.group(0)[:200],
+                            'date': parsed_date.date(),
+                            'priority': 'normal',
+                            'category': 'family' if 'family' in event_type or 'visit' in event_type else 'social'
+                        })
+                except:
+                    pass
+
+        return reminders
+
     def extract_cognitive_indicators(self, messages: List[Dict]) -> Dict[str, any]:
         """
         Analyze conversation for cognitive health indicators
@@ -320,6 +393,30 @@ class AnalyticsSyncService:
                     session_id
                 ))
                 logger.info(f"  ✅ Inserted medication log")
+
+            # Extract and insert reminders
+            try:
+                extracted_reminders = self.extract_reminders(messages)
+                if extracted_reminders:
+                    for reminder in extracted_reminders:
+                        cursor.execute("""
+                            INSERT INTO senior_reminders
+                            (senior_id, reminder_type, title, description, reminder_date,
+                             priority, category, created_by)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            senior_id,
+                            reminder.get('type', 'appointment'),
+                            reminder.get('title', 'Reminder'),
+                            reminder.get('description'),
+                            reminder.get('date'),
+                            reminder.get('priority', 'normal'),
+                            reminder.get('category', 'health'),
+                            'agent'
+                        ))
+                    logger.info(f"  ✅ Inserted {len(extracted_reminders)} reminders")
+            except Exception as reminder_error:
+                logger.warning(f"  ⚠️  Could not extract reminders: {reminder_error}")
 
             self.pg_conn.commit()
             cursor.close()
