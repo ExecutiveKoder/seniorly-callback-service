@@ -177,6 +177,156 @@ class AnalyticsSyncService:
 
         return reminders
 
+    def extract_activity_data(self, messages: List[Dict]) -> Optional[Dict]:
+        """
+        Extract physical activity data from conversation
+        Returns dict with: walked, walk_duration, exercise_type, activity_level, left_house, social_interaction
+        """
+        conversation_text = " ".join([msg.get('content', '') for msg in messages if msg['role'] == 'user']).lower()
+
+        activity_data = {}
+
+        # Walking
+        if re.search(r'\b(walked|walk|walking)\b', conversation_text):
+            activity_data['walked'] = True
+
+            # Duration
+            duration_match = re.search(r'walked?\s+(?:for\s+)?(\d+)\s*minutes?', conversation_text)
+            if duration_match:
+                activity_data['walk_duration_minutes'] = int(duration_match.group(1))
+
+            # Distance
+            if re.search(r'around\s+the\s+block', conversation_text):
+                activity_data['walk_distance'] = 'around the block'
+            elif re.search(r'to\s+the\s+mailbox', conversation_text):
+                activity_data['walk_distance'] = 'to the mailbox'
+
+        # Exercise
+        exercise_types = ['yoga', 'stretching', 'swimming', 'gardening', 'exercise', 'workout']
+        for ex_type in exercise_types:
+            if ex_type in conversation_text:
+                activity_data['exercise_type'] = ex_type
+                break
+
+        # Leaving house
+        if re.search(r'\b(went out|left house|outside|went to|drove to)\b', conversation_text):
+            activity_data['left_house'] = True
+
+        # Social interaction
+        if re.search(r'\b(talked to|spoke with|visited|visit from|saw|called|video call)\b.*\b(family|friend|kids|grandkids|children|neighbor)', conversation_text):
+            activity_data['social_interaction'] = True
+
+        # Activity level assessment
+        if activity_data.get('walked') or activity_data.get('exercise_type'):
+            activity_data['activity_level'] = 'moderate' if activity_data.get('walk_duration_minutes', 0) > 15 else 'light'
+        elif activity_data.get('left_house') or activity_data.get('social_interaction'):
+            activity_data['activity_level'] = 'light'
+        else:
+            # Check for sedentary indicators
+            if re.search(r'\b(sat|sitting|lying down|resting|nap|bed all day)\b', conversation_text):
+                activity_data['activity_level'] = 'sedentary'
+
+        return activity_data if activity_data else None
+
+    def extract_falls_data(self, messages: List[Dict]) -> Optional[Dict]:
+        """
+        Extract fall incidents from conversation
+        Returns dict with: incident_type, location, injured, felt_dizzy, etc.
+        """
+        conversation_text = " ".join([msg.get('content', '') for msg in messages]).lower()
+
+        # Check for fall mentions
+        if not re.search(r'\b(fell|fall|fallen|tripped|slipped|lost balance|dizzy|stumbled)\b', conversation_text):
+            return None
+
+        falls_data = {}
+
+        # Incident type
+        if re.search(r'\b(fell|fall|fallen)\b', conversation_text):
+            falls_data['incident_type'] = 'fall'
+        elif re.search(r'\b(almost fell|nearly fell|caught myself)\b', conversation_text):
+            falls_data['incident_type'] = 'near_fall'
+        elif re.search(r'\b(lost\s+(?:my\s+)?balance)\b', conversation_text):
+            falls_data['incident_type'] = 'loss_of_balance'
+        elif re.search(r'\b(dizzy|dizziness|lightheaded)\b', conversation_text):
+            falls_data['incident_type'] = 'dizzy_spell'
+        else:
+            return None
+
+        # Location
+        locations = {
+            'bathroom': r'\b(bathroom|shower|bath|toilet)\b',
+            'bedroom': r'\bbedroom\b',
+            'kitchen': r'\bkitchen\b',
+            'stairs': r'\b(stairs|steps)\b',
+            'outside': r'\b(outside|yard|sidewalk|street)\b'
+        }
+        for loc, pattern in locations.items():
+            if re.search(pattern, conversation_text):
+                falls_data['location'] = loc
+                break
+
+        # Injury
+        if re.search(r'\b(hurt|injured|bruise|cut|pain|sore)\b', conversation_text):
+            falls_data['injured'] = True
+            falls_data['severity'] = 'moderate'
+
+        # Contributing factors
+        if re.search(r'\b(dizzy|dizziness)\b', conversation_text):
+            falls_data['felt_dizzy'] = True
+        if re.search(r'\b(tripped|trip)\b', conversation_text):
+            falls_data['tripped'] = True
+        if re.search(r'\b(slipped|slip)\b', conversation_text):
+            falls_data['slipped'] = True
+        if re.search(r'\b(weak|weakness|legs gave out)\b', conversation_text):
+            falls_data['weakness'] = True
+
+        return falls_data
+
+    def extract_condition_status(self, messages: List[Dict], senior_conditions: List[str] = None) -> List[Dict]:
+        """
+        Extract chronic condition status mentions
+        Returns list of condition tracking dicts
+        """
+        if not senior_conditions:
+            senior_conditions = ['diabetes', 'hypertension', 'arthritis', 'copd', 'heart disease', 'asthma']
+
+        conversation_text = " ".join([msg.get('content', '') for msg in messages]).lower()
+        condition_updates = []
+
+        for condition in senior_conditions:
+            condition_lower = condition.lower()
+
+            # Check if condition mentioned
+            if condition_lower not in conversation_text:
+                continue
+
+            condition_data = {
+                'condition_name': condition,
+                'status': 'stable'
+            }
+
+            # Status indicators
+            if re.search(rf'{condition_lower}.*\b(worse|worsening|flare|flaring up|acting up)\b', conversation_text):
+                condition_data['status'] = 'worsening'
+            elif re.search(rf'{condition_lower}.*\b(better|improving|under control)\b', conversation_text):
+                condition_data['status'] = 'improving'
+            elif re.search(rf'{condition_lower}.*\b(flare-?up|bad day|really bad)\b', conversation_text):
+                condition_data['status'] = 'flare-up'
+
+            # Symptoms
+            if re.search(rf'{condition_lower}.*\b(hurting|pain|swelling|trouble|difficult)\b', conversation_text):
+                condition_data['symptoms_present'] = True
+
+            # Impact on daily life
+            if re.search(r'\b(can\'?t|couldn\'?t|unable to|too hard to)\b', conversation_text):
+                condition_data['limited_activities'] = True
+                condition_data['impact_on_daily_life'] = 7  # Estimated high impact
+
+            condition_updates.append(condition_data)
+
+        return condition_updates
+
     def extract_cognitive_indicators(self, messages: List[Dict]) -> Dict[str, any]:
         """
         Analyze conversation for cognitive health indicators
@@ -417,6 +567,94 @@ class AnalyticsSyncService:
                     logger.info(f"  ✅ Inserted {len(extracted_reminders)} reminders")
             except Exception as reminder_error:
                 logger.warning(f"  ⚠️  Could not extract reminders: {reminder_error}")
+
+            # Extract and insert activity data
+            try:
+                activity_data = self.extract_activity_data(messages)
+                if activity_data:
+                    cursor.execute("""
+                        INSERT INTO senior_activity
+                        (senior_id, activity_date, walked, walk_duration_minutes, walk_distance,
+                         exercise_type, activity_level, left_house, social_interaction, session_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (senior_id, activity_date) DO UPDATE
+                        SET walked = EXCLUDED.walked,
+                            walk_duration_minutes = EXCLUDED.walk_duration_minutes,
+                            walk_distance = EXCLUDED.walk_distance,
+                            exercise_type = EXCLUDED.exercise_type,
+                            activity_level = EXCLUDED.activity_level,
+                            left_house = EXCLUDED.left_house,
+                            social_interaction = EXCLUDED.social_interaction
+                    """, (
+                        senior_id,
+                        created_at.date(),
+                        activity_data.get('walked', False),
+                        activity_data.get('walk_duration_minutes'),
+                        activity_data.get('walk_distance'),
+                        activity_data.get('exercise_type'),
+                        activity_data.get('activity_level'),
+                        activity_data.get('left_house', False),
+                        activity_data.get('social_interaction', False),
+                        session_id
+                    ))
+                    logger.info(f"  ✅ Inserted activity data")
+            except Exception as activity_error:
+                logger.warning(f"  ⚠️  Could not extract activity: {activity_error}")
+
+            # Extract and insert falls data
+            try:
+                falls_data = self.extract_falls_data(messages)
+                if falls_data:
+                    cursor.execute("""
+                        INSERT INTO senior_falls
+                        (senior_id, incident_date, incident_type, location, injured,
+                         felt_dizzy, tripped, slipped, weakness, severity, session_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        senior_id,
+                        created_at,
+                        falls_data.get('incident_type'),
+                        falls_data.get('location'),
+                        falls_data.get('injured', False),
+                        falls_data.get('felt_dizzy', False),
+                        falls_data.get('tripped', False),
+                        falls_data.get('slipped', False),
+                        falls_data.get('weakness', False),
+                        falls_data.get('severity', 'minor'),
+                        session_id
+                    ))
+                    logger.info(f"  ⚠️  ALERT: Fall incident recorded - {falls_data.get('incident_type')}")
+            except Exception as falls_error:
+                logger.warning(f"  ⚠️  Could not extract falls data: {falls_error}")
+
+            # Extract and insert chronic condition tracking
+            try:
+                condition_updates = self.extract_condition_status(messages)
+                if condition_updates:
+                    for condition in condition_updates:
+                        cursor.execute("""
+                            INSERT INTO condition_tracking
+                            (senior_id, tracking_date, condition_name, status, symptoms_present,
+                             limited_activities, impact_on_daily_life, session_id)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (senior_id, tracking_date, condition_name) DO UPDATE
+                            SET status = EXCLUDED.status,
+                                symptoms_present = EXCLUDED.symptoms_present,
+                                limited_activities = EXCLUDED.limited_activities,
+                                impact_on_daily_life = EXCLUDED.impact_on_daily_life
+                        """, (
+                            senior_id,
+                            created_at.date(),
+                            condition.get('condition_name'),
+                            condition.get('status', 'stable'),
+                            condition.get('symptoms_present', False),
+                            condition.get('limited_activities', False),
+                            condition.get('impact_on_daily_life'),
+                            session_id
+                        ))
+                    logger.info(f"  ✅ Inserted {len(condition_updates)} condition updates")
+            except Exception as condition_error:
+                logger.warning(f"  ⚠️  Could not extract condition status: {condition_error}")
 
             self.pg_conn.commit()
             cursor.close()
