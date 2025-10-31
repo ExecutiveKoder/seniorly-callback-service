@@ -57,7 +57,7 @@ echo -e "     ${CYAN}→ Make real phone calls${NC}"
 echo -e "     ${CYAN}→ Requires: ./deploy_to_azure.sh (one-time setup)${NC}"
 echo ""
 echo -e "  ${GREEN}3)${NC} Phone Calls via Twilio (Local + ngrok)"
-echo -e "     ${CYAN}→ Development/testing mode${NC}"
+echo -e "     ${CYAN}→ Development/testing mode (deprecated)${NC}"
 echo -e "     ${CYAN}→ Requires: brew install ngrok${NC}"
 echo ""
 echo -e "  ${RED}4)${NC} Exit"
@@ -101,7 +101,7 @@ case $main_choice in
         senior_name=${senior_name:-John}
 
         echo ""
-        echo -e "${YELLOW}📞 Calling ${phone_number}...${NC}"
+        echo -e "${YELLOW}📞 Calling number...${NC}"
 
         ./venv/bin/python - <<EOF
 import sys
@@ -198,6 +198,7 @@ EOF
                     read -p "Name (default: John): " name
                     name=${name:-John}
 
+                    echo -e "${YELLOW}📞 Calling number...${NC}"
                     ./venv/bin/python - <<PYTHON_EOF
 import sys
 from pathlib import Path

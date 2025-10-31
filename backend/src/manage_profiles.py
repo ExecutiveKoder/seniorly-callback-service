@@ -122,9 +122,9 @@ def add_senior(service: SeniorProfileService):
 
         print(f"\n✅ Senior profile created successfully!")
         print(f"📝 Senior ID: {senior_id}")
-        print(f"👤 Name: {first_name} {last_name}")
-        print(f"📧 Email: {email}")
-        print(f"📞 Phone: {phone_number}")
+        print(f"👤 Name: [suppressed]")
+        print(f"📧 Email: [suppressed]")
+        print(f"📞 Phone: [suppressed]")
 
     except Exception as e:
         print(f"\n❌ Error creating profile: {e}")
@@ -145,20 +145,20 @@ def view_senior(service: SeniorProfileService):
         return
 
     print("\n" + "="*60)
-    print(f"📋 PROFILE: {profile['fullName']}")
+    print(f"📋 PROFILE: [suppressed]")
     print("="*60)
     print(f"Senior ID: {profile['seniorId']}")
-    print(f"Name: {profile['fullName']}")
+    print(f"Name: [suppressed]")
     print(f"Email: {profile.get('email', 'N/A')}")
-    print(f"Phone: {profile['phoneNumber']}")
-    print(f"Date of Birth: {profile.get('dateOfBirth', 'N/A')}")
+    print(f"Phone: [suppressed]")
+    print(f"Date of Birth: [suppressed]")
     print(f"Age: {profile.get('age', 'N/A')}")
     print(f"Status: {profile['status']}")
     print(f"Enrolled: {profile['enrollmentDate']}")
 
     print("\n--- Emergency Contact ---")
-    print(f"Name: {profile['emergencyContact'].get('name', 'N/A')}")
-    print(f"Phone: {profile['emergencyContact'].get('phone', 'N/A')}")
+    print(f"Name: [suppressed]")
+    print(f"Phone: [suppressed]")
 
     print("\n--- Medical Information ---")
     print(f"Conditions: {', '.join(profile['medicalInformation']['conditions']) or 'None'}")
@@ -195,9 +195,9 @@ def list_seniors(service: SeniorProfileService):
         return
 
     for i, senior in enumerate(seniors, 1):
-        print(f"{i}. {senior['fullName']}")
+        print(f"{i}. [name suppressed]")
         print(f"   ID: {senior['seniorId']}")
-        print(f"   Phone: {senior['phoneNumber']}")
+        print(f"   Phone: [suppressed]")
         print(f"   Calls: {senior['callHistory']['totalCalls']}")
         print(f"   Last Call: {senior['callSchedule'].get('lastCallDate', 'Never')}")
         print()
@@ -216,10 +216,10 @@ def search_by_phone(service: SeniorProfileService):
     profile = service.search_seniors_by_phone(phone)
 
     if not profile:
-        print(f"\n❌ No senior found with phone number: {phone}")
+        print(f"\n❌ No senior found with that phone number")
         return
 
-    print(f"\n✅ Found: {profile['fullName']}")
+    print(f"\n✅ Found: [name suppressed]")
     print(f"Senior ID: {profile['seniorId']}")
     print(f"Status: {profile['status']}")
     print(f"Total Calls: {profile['callHistory']['totalCalls']}")
@@ -238,7 +238,7 @@ def update_senior(service: SeniorProfileService):
         print(f"\n❌ Senior not found: {senior_id}")
         return
 
-    print(f"\nUpdating profile for: {profile['fullName']}")
+    print(f"\nUpdating profile for: [suppressed]")
     print("\nWhat would you like to update?")
     print("1. Email Address")
     print("2. Phone Number")
@@ -296,7 +296,7 @@ def view_call_history(service: SeniorProfileService):
         print(f"\n❌ Senior not found: {senior_id}")
         return
 
-    print(f"\n📋 Call History for: {profile['fullName']}")
+    print(f"\n📋 Call History for: [suppressed]")
     print("="*60)
 
     sessions = profile['callHistory']['sessions']

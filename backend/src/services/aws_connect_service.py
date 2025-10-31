@@ -56,7 +56,7 @@ class AWSConnectService:
             formatted_destination = self._format_phone_number(destination_phone)
             formatted_source = self._format_phone_number(self.phone_number)
 
-            logger.info(f"Initiating outbound call to senior: {senior_name}")
+            logger.info("Initiating outbound call (senior name suppressed)")
 
             # Get AI agent name from config
             from src.config import config

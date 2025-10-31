@@ -94,9 +94,9 @@ async def connect_webhook(request: Request):
     Receives call events and returns AI responses
     """
     try:
-        # Get the request body
+        # Get the request body (do not log raw content to prevent PHI leakage)
         body = await request.json()
-        logger.info(f"Received AWS Connect webhook: {body}")
+        logger.info("Received AWS Connect webhook (content suppressed)")
 
         # Extract call details
         contact_id = body.get('ContactId', 'unknown')
@@ -106,7 +106,7 @@ async def connect_webhook(request: Request):
         senior_name = attributes.get('senior_name', 'there')
         ai_name = config.get_ai_name()
 
-        logger.info(f"Processing call - Contact ID: {contact_id}, Senior: {senior_name}, AI: {ai_name}")
+        logger.info(f"Processing call - Contact ID: {contact_id}")
 
         # Generate greeting using OpenAI
         greeting_prompt = f"Generate a warm, friendly greeting for {senior_name}. Keep it brief (1-2 sentences). You are {ai_name} from Seniorly calling for a daily wellness check."
@@ -120,7 +120,7 @@ async def connect_webhook(request: Request):
         if not greeting:
             greeting = f"Hello {senior_name}! This is {ai_name} from Seniorly. How are you doing today?"
 
-        logger.info(f"Generated greeting: {greeting}")
+        logger.info("Generated greeting (content suppressed)")
 
         # Return response in AWS Connect format
         return JSONResponse({
@@ -152,7 +152,7 @@ async def voice_webhook(request: Request):
                 "error": "No text provided"
             }, status_code=400)
 
-        logger.info(f"Generating speech for: {text[:50]}...")
+        logger.info("Generating speech (content suppressed)")
 
         # Generate speech using Azure Speech Services
         audio_data = speech_service.synthesize_to_bytes(text)

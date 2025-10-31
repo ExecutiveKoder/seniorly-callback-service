@@ -11,15 +11,21 @@ azure-identity==1.20.0
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 
+# Telephony
+twilio==9.8.5
+
 # Utilities
 python-dotenv==1.2.1
 pydantic==2.12.3
 pydantic-settings==2.7.0
+psycopg2-binary==2.9.10
+dateparser==1.2.0
 
-# AWS SDK for Connect
+# AWS SDK (for Kinesis Video Streams with Connect integration)
 boto3==1.35.0
 
 # Audio processing
 av==16.0.1
 soundfile==0.13.1
 numpy==2.3.4
+python-multipart==0.0.9

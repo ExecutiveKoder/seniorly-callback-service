@@ -117,7 +117,7 @@ class KinesisAudioProcessor:
                 logger.warning("No speech recognized in audio chunk")
                 return None
 
-            logger.info(f"Transcribed: {transcribed_text}")
+            logger.info("Transcription complete (content suppressed)")
 
             # Generate AI response using GPT-5
             logger.info("Generating AI response...")
@@ -131,7 +131,7 @@ class KinesisAudioProcessor:
                 logger.warning("No AI response generated")
                 return None
 
-            logger.info(f"AI Response: {ai_response}")
+            logger.info("AI response generated (content suppressed)")
 
             # Synthesize response using Azure Speech (Jason's voice)
             logger.info(f"Synthesizing response with {self.ai_name}'s voice...")

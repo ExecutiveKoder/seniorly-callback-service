@@ -159,7 +159,7 @@ class RemindersService:
             self.pg_conn.commit()
             cursor.close()
 
-            logger.info(f"✅ Added reminder {reminder_id} for senior {senior_id}: {title}")
+            logger.info(f"✅ Added reminder {reminder_id} for senior {senior_id} (title suppressed)")
             return True
 
         except Exception as e:

@@ -199,7 +199,8 @@ class Config:
         print(f"Cosmos Database: {cls.COSMOS_DATABASE}")
         print(f"Cosmos Container: {cls.COSMOS_CONTAINER}")
         print(f"Search Index: {cls.SEARCH_INDEX}")
-        print(f"Phone Number: {cls.PHONE_NUMBER}")
+        masked_phone = (cls.PHONE_NUMBER[:-4].replace(cls.PHONE_NUMBER[:-4], "***") + cls.PHONE_NUMBER[-4:]) if cls.PHONE_NUMBER else ""
+        print(f"Phone Number: {masked_phone}")
         print(f"Debug Mode: {cls.DEBUG}")
         print("====================\n")
 

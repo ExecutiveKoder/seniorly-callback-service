@@ -110,7 +110,7 @@ Be warm, engaging, and professional."""
             messages = [{"role": "system", "content": self.system_prompt}]
             messages.extend(self.conversation_history)
 
-            logger.info(f"Sending message to GPT-5-CHAT: {user_message[:50]}...")
+            logger.info(f"Sending message to GPT-5-CHAT (length: {len(user_message)})")
             print(f"\n🤖 Thinking...")
 
             # Call Azure OpenAI with balanced optimization
@@ -135,7 +135,7 @@ Be warm, engaging, and professional."""
             # Trim working history to prevent lag (keep full history for summary)
             self.trim_conversation_history(max_turns=8)
 
-            logger.info(f"Received response: {assistant_message[:50]}...")
+            logger.info(f"Received response (length: {len(assistant_message) if assistant_message else 0})")
             return assistant_message
 
         except Exception as e:
@@ -166,7 +166,7 @@ Be warm, engaging, and professional."""
             messages = [{"role": "system", "content": self.system_prompt}]
             messages.extend(self.conversation_history)
 
-            logger.info(f"Streaming response for: {user_message[:50]}...")
+            logger.info(f"Streaming response for user message (length: {len(user_message)})")
             print(f"\n🤖 Response: ", end="", flush=True)
 
             # Call Azure OpenAI with streaming
@@ -324,7 +324,7 @@ Detailed Summary:"""
             )
 
             summary = response.choices[0].message.content.strip()
-            logger.info(f"Generated call summary: {summary[:100]}...")
+            logger.info(f"Generated call summary (length: {len(summary)})")
             return summary
 
         except Exception as e:

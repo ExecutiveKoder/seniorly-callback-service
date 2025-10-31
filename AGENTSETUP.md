@@ -11,11 +11,11 @@ Complete guide to replicate this Azure-based voice agent architecture for senior
 **Tech Stack**:
 - **AI**: Azure OpenAI GPT-5
 - **Speech**: Azure Speech Services (TTS/STT)
-- **Telephony**: AWS Connect (outbound calling)
-- **Data**: Azure Cosmos DB, Redis, SQL Database
-- **Backend**: Python (FastAPI/Flask)
+- **Telephony**: Twilio (outbound calling + Media Streams)
+- **Data**: Azure Cosmos DB, Redis, PostgreSQL
+- **Backend**: Python (FastAPI)
 - **Frontend**: Next.js + Tailwind CSS
-- **Streaming**: Twilio Media Streams (WebSocket audio)
+- **Deployment**: Azure Container Apps
 
 ---
 
@@ -56,6 +56,46 @@ Complete guide to replicate this Azure-based voice agent architecture for senior
 │  └─ Read from SQL for health analytics   │
 └──────────────────────────────────────────┘
 ```
+
+---
+
+## 📁 Complete Project Structure
+
+**Root directory:** `callback-voice-agent/`
+
+```
+callback-voice-agent/
+├── backend/                     # Python voice agent backend
+│   ├── src/                     # Application source code
+│   ├── services/                # Business logic services (17 services)
+│   ├── database/                # PostgreSQL schemas
+│   ├── scripts/                 # Utility scripts
+│   ├── requirements.txt         # Python dependencies
+│   ├── Dockerfile               # Container definition
+│   ├── .env                     # Environment variables (local)
+│   └── .azure_endpoint          # Deployed Azure URL
+│
+├── frontend/                    # Next.js dashboard (optional)
+│   ├── src/
+│   │   ├── app/                 # Next.js 13+ App Router pages
+│   │   ├── components/          # React components
+│   │   ├── lib/                 # Database & utilities
+│   │   └── types/               # TypeScript type definitions
+│   ├── package.json
+│   └── .env.local
+│
+├── AGENTSETUP.md               # This file - complete setup guide
+└── README.md                   # Project overview
+
+```
+
+**When creating a new voice agent:**
+1. Create `backend/` folder with the structure shown in "Python Backend Structure" section
+2. Optionally create `frontend/` folder with the structure shown in "Frontend Dashboard" section
+3. Copy environment variables from this guide to `backend/.env`
+4. Install dependencies: `cd backend && pip install -r requirements.txt`
+5. Run setup scripts: `python database/setup_database_postgres.py`
+6. Deploy: `az containerapp up` (see deployment section)
 
 ---
 
@@ -371,28 +411,140 @@ TWILIO_PHONE_NUMBER=+18668119355
 
 ## 🐍 Python Backend Structure
 
+**Location:** `callback-voice-agent/backend/`
+
 ```
 backend/
 ├── src/
-│   ├── main.py                    # FastAPI server, webhook handlers
-│   ├── config.py                  # Environment variables
-│   ├── senior_health_prompt.py    # AI system prompt for senior conversations
+│   ├── main.py                           # FastAPI server, Twilio webhook handlers
+│   ├── config.py                         # Load environment variables from .env
+│   ├── senior_health_prompt.py           # AI system prompt (personality, instructions)
+│   │
 │   ├── services/
-│   │   ├── openai_service.py      # Azure OpenAI client
-│   │   ├── speech_service.py      # Azure Speech STT/TTS
-│   │   ├── redis_service.py       # Redis session management
-│   │   ├── cosmos_service.py      # Cosmos DB operations
-│   │   ├── profile_service.py     # Senior profile management
-│   │   └── analytics_service.py   # Extract metrics → SQL
+│   │   ├── openai_service.py             # Azure OpenAI GPT-5 client
+│   │   ├── speech_service.py             # Azure Speech STT/TTS
+│   │   ├── twilio_service.py             # Twilio call initiation
+│   │   ├── data_service.py               # Combined data layer (Cosmos + Redis + Search)
+│   │   ├── cosmos_service.py             # Cosmos DB: conversations, profiles
+│   │   ├── redis_service.py              # Redis: session state, caching
+│   │   ├── profile_service.py            # Senior profile CRUD operations
+│   │   ├── identity_verification_service.py  # Name + DOB verification
+│   │   ├── conversation_context_service.py   # Build dynamic context from history
+│   │   ├── safety_service.py             # Detect concerning patterns (health alerts)
+│   │   ├── cost_tracking_service.py      # Track API usage costs
+│   │   ├── analytics_sync_service.py     # Extract metrics → PostgreSQL (real-time)
+│   │   ├── reminders_service.py          # Manage appointments/reminders
+│   │   ├── call_flow_service.py          # Structured call todos (NEW)
+│   │   ├── research_service.py           # Find doctors/resources (NEW)
+│   │   ├── email_service.py              # Send emails via Azure Communication (NEW)
+│   │   └── async_tasks_service.py        # Background task queue (NEW)
+│   │
 │   └── utils/
-│       ├── audio_utils.py         # Audio format conversions
-│       └── metrics_extractor.py   # Regex patterns for vitals
+│       ├── audio_utils.py                # Audio format conversions (mulaw, PCM)
+│       └── cognitive_tests.py            # Cognitive assessment patterns
+│
 ├── database/
-│   ├── schema.sql                 # SQL database schema
-│   └── setup_database.py          # Script to create tables
-├── requirements.txt
-├── Dockerfile
-└── .env
+│   ├── schema_postgres.sql               # PostgreSQL analytics schema
+│   ├── add_reminders_table.sql           # Reminders table
+│   ├── add_activity_falls_conditions_tables.sql  # Activity/falls/conditions
+│   └── setup_database_postgres.py        # Create all tables
+│
+├── scripts/
+│   ├── migrate_cosmos_to_postgres.py     # One-time data migration
+│   ├── query_sql_database.py             # Query PostgreSQL analytics
+│   └── update_postgres_firewall.sh       # Auto-update firewall IP (cron job)
+│
+├── twilio_websocket_server.py            # WebSocket server for Twilio Media Streams
+├── run_app.sh                             # Testing launcher (local/Twilio/ngrok)
+├── requirements.txt                       # Python dependencies
+├── Dockerfile                             # Container image definition
+├── .env                                   # Environment variables (DO NOT COMMIT)
+├── .azure_endpoint                        # Deployed Azure URL
+└── venv/                                  # Virtual environment (local only)
+```
+
+### Key Files Explained:
+
+**`src/main.py`**:
+- FastAPI server with `/voice` webhook endpoint
+- Handles Twilio call initiation and WebSocket connections
+- Orchestrates all services (OpenAI, Speech, Database)
+
+**`src/senior_health_prompt.py`**:
+- Complete AI personality and instructions
+- Conversation flow guidance (reminders, research, health checks)
+- Safety guardrails and exit handling
+
+**`src/services/`**:
+- Each service encapsulates one responsibility
+- `data_service.py` is the main entry point (combines Cosmos + Redis + Search)
+- `analytics_sync_service.py` runs after each call to extract health metrics
+
+**`database/`**:
+- SQL files define PostgreSQL schema
+- `setup_database_postgres.py` creates tables automatically
+
+**`scripts/`**:
+- Utility scripts for database management
+- `update_postgres_firewall.sh` runs via cron every 4 hours
+
+**`twilio_websocket_server.py`**:
+- Standalone WebSocket server for bidirectional audio streaming
+- Handles mulaw audio encoding/decoding
+
+---
+
+## 📦 Python Dependencies (requirements.txt)
+
+```txt
+# Azure SDK packages
+azure-cognitiveservices-speech==1.46.0
+openai==2.6.1
+azure-cosmos==4.14.0
+azure-search-documents==11.6.0
+redis==7.0.1
+azure-keyvault-secrets==4.9.0
+azure-identity==1.20.0
+
+# Web framework for webhooks
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Telephony
+twilio==9.8.5
+
+# Utilities
+python-dotenv==1.2.1
+pydantic==2.12.3
+pydantic-settings==2.7.0
+psycopg2-binary==2.9.10
+dateparser==1.2.0
+
+# AWS SDK (for Kinesis Video Streams with Connect integration)
+boto3==1.35.0
+
+# Audio processing
+av==16.0.1
+soundfile==0.13.1
+numpy==2.3.4
+```
+
+**Key Dependencies:**
+- **azure-cognitiveservices-speech**: Azure Speech STT/TTS
+- **openai**: Azure OpenAI GPT-5 client
+- **azure-cosmos**: Cosmos DB NoSQL storage
+- **redis**: Session state management
+- **psycopg2-binary**: PostgreSQL database client (analytics)
+- **twilio**: Telephony and Media Streams
+- **fastapi + uvicorn**: Web server for webhooks
+- **dateparser**: Parse appointment dates from natural language
+
+**Installation:**
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
 ---
@@ -443,16 +595,88 @@ def extract_and_save_metrics(
 
 ## 🎨 Frontend Dashboard (Next.js)
 
-### Pages
-- `/login` - User authentication
-- `/dashboard` - Overview: active seniors, recent calls, alerts
-- `/seniors` - List of all seniors
-- `/seniors/[id]` - Individual senior profile with:
-  - Latest vitals (BP, heart rate, weight)
-  - 30-day cognitive trend chart
-  - Medication adherence calendar
-  - Active health alerts
-  - Call history
+**Location:** `callback-voice-agent/frontend/` (if exists)
+
+```
+frontend/
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx                    # Root layout
+│   │   ├── page.tsx                      # Home page (redirect to dashboard)
+│   │   ├── login/
+│   │   │   └── page.tsx                  # Authentication page
+│   │   ├── dashboard/
+│   │   │   └── page.tsx                  # Main dashboard overview
+│   │   ├── seniors/
+│   │   │   ├── page.tsx                  # List all seniors
+│   │   │   └── [id]/
+│   │   │       ├── page.tsx              # Senior profile detail
+│   │   │       ├── vitals/page.tsx       # Vitals history
+│   │   │       ├── cognitive/page.tsx    # Cognitive trends
+│   │   │       └── calls/page.tsx        # Call history
+│   │   └── api/
+│   │       ├── seniors/
+│   │       │   ├── route.ts              # GET /api/seniors (list)
+│   │       │   └── [id]/
+│   │       │       ├── route.ts          # GET /api/seniors/:id
+│   │       │       ├── vitals/route.ts   # GET vitals for senior
+│   │       │       └── cognitive/route.ts # GET cognitive scores
+│   │       └── auth/
+│   │           └── [...nextauth]/route.ts # NextAuth.js endpoints
+│   │
+│   ├── components/
+│   │   ├── ui/                           # Shadcn UI components
+│   │   │   ├── button.tsx
+│   │   │   ├── card.tsx
+│   │   │   ├── chart.tsx
+│   │   │   └── table.tsx
+│   │   ├── SeniorCard.tsx                # Senior overview card
+│   │   ├── VitalsChart.tsx               # Line chart for vitals
+│   │   ├── CognitiveScoreCard.tsx        # Cognitive score display
+│   │   ├── AlertBanner.tsx               # Health alert notifications
+│   │   └── CallHistoryTable.tsx          # Table of past calls
+│   │
+│   ├── lib/
+│   │   ├── db.ts                         # PostgreSQL connection
+│   │   ├── auth.ts                       # NextAuth configuration
+│   │   └── utils.ts                      # Utility functions
+│   │
+│   └── types/
+│       ├── senior.ts                     # Senior profile types
+│       ├── vitals.ts                     # Vitals data types
+│       └── api.ts                        # API response types
+│
+├── public/
+│   ├── logo.svg
+│   └── favicon.ico
+│
+├── .env.local                            # Environment variables (DO NOT COMMIT)
+├── next.config.js                        # Next.js configuration
+├── tailwind.config.ts                    # Tailwind CSS config
+├── tsconfig.json                         # TypeScript config
+└── package.json                          # Dependencies
+```
+
+### Key Pages
+
+**`/dashboard`** - Overview page showing:
+- Total active seniors
+- Recent calls (last 24 hours)
+- Active health alerts (high BP, missed medications)
+- Upcoming appointments/reminders
+
+**`/seniors`** - List all seniors with search/filter:
+- Name, age, last call date
+- Latest vital signs
+- Active alerts badge
+- Quick actions (call now, view profile)
+
+**`/seniors/[id]`** - Individual senior profile:
+- Latest vitals (BP, heart rate, weight, sleep)
+- 30-day cognitive trend chart
+- Medication adherence calendar
+- Active health alerts
+- Call history with summaries
 
 ### API Routes (Next.js API)
 ```typescript
@@ -597,11 +821,10 @@ az staticwebapp create \
 | Azure Speech | Standard | ~$10-50 |
 | Cosmos DB | Basic (1000 RU/s) | ~$25 |
 | Redis | Basic C0 | ~$16 |
-| Azure SQL | Basic | ~$5 |
+| Azure PostgreSQL | Flexible Server | ~$15 |
 | Container Apps | Consumption | ~$10-30 |
-| AWS Connect | Pay-as-you-go | $0.018/min (~$50 for 2800 min) |
-| Twilio | Pay-as-you-go | $0.013/min (~$36 for 2800 min) |
-| **TOTAL** | | **~$200-400/month** |
+| Twilio (Telephony) | Pay-as-you-go | $0.013/min (~$36 for 2800 min) |
+| **TOTAL** | | **~$160-370/month** |
 
 **HIPAA Compliance Add-on**: +$3k/month (Twilio HIPAA)
 
@@ -611,15 +834,19 @@ az staticwebapp create \
 
 ### What Requires HIPAA Compliance?
 - **PHI (Protected Health Information)**: Name + DOB + medical history
-- **Covered**: Azure (with BAA), AWS Connect (with BAA)
+- **Covered**: Azure services (with BAA), Twilio (with HIPAA add-on)
 - **Not Covered (without add-on)**: Twilio standard plan
+
+### Current Setup:
+- **Telephony**: Twilio Media Streams (currently using standard plan)
+- **All Processing**: Azure (HIPAA-compliant with BAA)
+- **Storage**: Azure Cosmos DB + PostgreSQL (HIPAA-compliant)
 
 ### Options:
 1. **For MVP (5-10 test users)**: Use standard Twilio with disclaimer
 2. **For Production**:
    - Twilio HIPAA add-on ($3k/month)
    - OR wait for Azure Communication Services WebSocket streaming (in preview)
-   - OR use AWS Connect with Kinesis Video Streams (more complex)
 
 ### Azure BAA:
 - Automatically included with Azure Enterprise Agreement (FREE)
@@ -802,6 +1029,273 @@ For issues or questions about this architecture, consult:
 
 ---
 
+---
+
+## 📋 Testing Checklist
+
+Before deploying to production, verify:
+
+### 1. Local Testing
+```bash
+cd backend
+source venv/bin/activate
+./run_app.sh local
+```
+- [ ] WebSocket server starts successfully
+- [ ] Environment variables loaded correctly
+- [ ] All services initialize (OpenAI, Speech, Redis, Cosmos, PostgreSQL)
+
+### 2. Database Connectivity
+```bash
+# Test PostgreSQL connection
+./venv/bin/python backend/scripts/query_sql_database.py
+
+# Test Redis connection
+redis-cli -h <your-redis-host> -p 6380 --tls -a <your-key> PING
+
+# Test Cosmos DB connection
+az cosmosdb show --name my-voice-agent-db --resource-group voice-agent-rg
+```
+- [ ] PostgreSQL tables created
+- [ ] Redis connection successful
+- [ ] Cosmos DB containers exist
+
+### 3. Twilio Integration Testing
+```bash
+# Start server with ngrok
+./run_app.sh ngrok
+
+# Configure Twilio webhook to ngrok URL
+# Make test call
+python -c "from src.services.twilio_service import TwilioService; TwilioService().initiate_call('+1234567890')"
+```
+- [ ] ngrok tunnel established
+- [ ] Twilio webhook receives requests
+- [ ] Audio streams bidirectionally
+- [ ] Speech recognition works
+- [ ] AI responses generated
+- [ ] TTS audio plays correctly
+
+### 4. Azure Deployment Testing
+```bash
+# Deploy to Azure Container Apps
+cd backend
+docker build -t myvoiceagentacr.azurecr.io/voice-agent:latest .
+docker push myvoiceagentacr.azurecr.io/voice-agent:latest
+az containerapp update --name voice-agent-backend --resource-group voice-agent-rg --image myvoiceagentacr.azurecr.io/voice-agent:latest
+
+# Update Twilio webhook to Azure URL
+# Make test call
+```
+- [ ] Container builds successfully
+- [ ] Container pushes to ACR
+- [ ] Container Apps deployment succeeds
+- [ ] Public URL accessible
+- [ ] Twilio webhook configured with production URL
+- [ ] End-to-end call completes successfully
+
+### 5. Data Verification
+```bash
+# After test call, verify data saved
+./venv/bin/python backend/scripts/query_sql_database.py
+```
+- [ ] Conversation saved to Cosmos DB
+- [ ] Session state cleared from Redis
+- [ ] Vitals extracted to PostgreSQL
+- [ ] Call summary generated
+- [ ] Health alerts created (if applicable)
+- [ ] Reminders loaded and mentioned
+- [ ] Cognitive scores calculated
+
+### 6. Frontend Dashboard (if deployed)
+- [ ] Dashboard loads successfully
+- [ ] Senior profiles displayed
+- [ ] Vitals charts render correctly
+- [ ] Cognitive trends visible
+- [ ] Health alerts shown
+- [ ] Call history populated
+
+---
+
+## 🔄 Continuous Monitoring
+
+### Set Up Automated Firewall Updates
+```bash
+# Add to crontab (runs every 4 hours)
+crontab -e
+
+# Add this line:
+0 */4 * * * /Users/satssehgal/Documents/Code/callback-voice-agent/backend/scripts/update_postgres_firewall.sh
+```
+
+### Set Up Health Monitoring
+```bash
+# Azure Monitor alerts for:
+# - Container Apps crashes
+# - OpenAI API errors
+# - Speech Service failures
+# - Database connection issues
+
+az monitor metrics alert create \
+  --name container-app-errors \
+  --resource-group voice-agent-rg \
+  --scopes /subscriptions/<subscription-id>/resourceGroups/voice-agent-rg/providers/Microsoft.App/containerApps/voice-agent-backend \
+  --condition "count Errors > 10" \
+  --window-size 5m \
+  --evaluation-frequency 1m
+```
+
+---
+
+## 📖 Quick Reference
+
+### Common Commands
+
+**Start local server:**
+```bash
+cd backend
+source venv/bin/activate
+./run_app.sh local
+```
+
+**Start with ngrok (for Twilio testing):**
+```bash
+./run_app.sh ngrok
+```
+
+**Query database:**
+```bash
+./venv/bin/python backend/scripts/query_sql_database.py
+```
+
+**Deploy to Azure:**
+```bash
+cd backend
+docker build -t myvoiceagentacr.azurecr.io/voice-agent:latest .
+docker push myvoiceagentacr.azurecr.io/voice-agent:latest
+az containerapp update --name voice-agent-backend --resource-group voice-agent-rg --image myvoiceagentacr.azurecr.io/voice-agent:latest
+```
+
+**Update PostgreSQL firewall:**
+```bash
+./backend/scripts/update_postgres_firewall.sh
+```
+
+### Useful Azure CLI Commands
+
+**Get Container App logs:**
+```bash
+az containerapp logs show \
+  --name voice-agent-backend \
+  --resource-group voice-agent-rg \
+  --follow
+```
+
+**Get Container App URL:**
+```bash
+az containerapp show \
+  --name voice-agent-backend \
+  --resource-group voice-agent-rg \
+  --query properties.configuration.ingress.fqdn
+```
+
+**Restart Container App:**
+```bash
+az containerapp revision restart \
+  --name voice-agent-backend \
+  --resource-group voice-agent-rg
+```
+
+### Environment Variables Reference
+
+**Required Variables:**
+- `AZURE_OPENAI_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT_NAME`
+- `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`
+- `AZURE_COSMOS_KEY`, `AZURE_COSMOS_ENDPOINT`
+- `AZURE_REDIS_HOST`, `AZURE_REDIS_KEY`
+- `AZURE_POSTGRES_SERVER`, `AZURE_POSTGRES_DATABASE`, `AZURE_POSTGRES_USERNAME`, `AZURE_POSTGRES_PASSWORD`
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
+
+**Optional Variables:**
+- `SPEECH_VOICE_NAME` (default: `en-US-JasonNeural`)
+- `REDIS_PORT` (default: `6380`)
+- `REDIS_SSL` (default: `true`)
+
+---
+
+## 🐛 Troubleshooting
+
+### Issue: PostgreSQL connection timeout
+**Solution:** Run firewall update script
+```bash
+./backend/scripts/update_postgres_firewall.sh
+```
+
+### Issue: Redis connection refused
+**Solution:** Verify SSL enabled and port 6380
+```bash
+az redis show --name my-voice-cache --resource-group voice-agent-rg --query enableNonSslPort
+# Should return: false
+```
+
+### Issue: Twilio webhook not receiving requests
+**Solution:** Verify webhook URL configured correctly
+```bash
+# Check Twilio console: Voice > Phone Numbers > [Your Number] > Voice Configuration
+# Webhook URL should be: https://<your-azure-url>/voice
+```
+
+### Issue: Audio not streaming
+**Solution:** Check WebSocket connection logs
+```bash
+# Look for "WebSocket connected" in logs
+az containerapp logs show --name voice-agent-backend --resource-group voice-agent-rg --follow
+```
+
+### Issue: GPT-5 responses slow
+**Solution:** Increase deployment capacity
+```bash
+az cognitiveservices account deployment update \
+  --name my-voice-agent-openai \
+  --resource-group voice-agent-rg \
+  --deployment-name gpt-5-chat \
+  --capacity 20  # Increase from 10 to 20
+```
+
+---
+
+## 📞 Production Readiness Checklist
+
+Before launching to production:
+
+- [ ] All environment variables configured in Azure Container Apps
+- [ ] HIPAA compliance configuration completed (audit logging, threat protection)
+- [ ] Twilio HIPAA add-on purchased and configured
+- [ ] Azure BAA signed
+- [ ] PostgreSQL firewall cron job set up
+- [ ] Azure Monitor alerts configured
+- [ ] Container Apps scaling rules configured
+- [ ] Backup and disaster recovery plan in place
+- [ ] End-to-end testing completed with 10+ test calls
+- [ ] Frontend dashboard deployed (if using)
+- [ ] User training completed (caregivers, administrators)
+
+---
+
+## 📚 Related Documentation
+
+- **`claude.md`**: Comprehensive technical documentation
+- **`backend/README.md`**: Backend-specific details
+- **`backend/database/schema_postgres.sql`**: Full database schema
+- **`backend/src/senior_health_prompt.py`**: AI personality and instructions
+- **Azure OpenAI Docs**: https://learn.microsoft.com/en-us/azure/ai-services/openai/
+- **Azure Speech Docs**: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/
+- **Twilio Media Streams**: https://www.twilio.com/docs/voice/media-streams
+
+---
+
 **Last Updated**: October 2025
 **Architecture Version**: 1.0
-**Status**: Production-ready (except HIPAA compliance requires Twilio add-on)
+**Status**: Production-ready (HIPAA-compliant with Twilio add-on)
+
+**System Ready for Testing**: ✅ Yes - Follow the Testing Checklist above

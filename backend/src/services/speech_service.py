@@ -213,6 +213,52 @@ class SpeechService:
             print(f"❌ Error: {e}")
             return False
 
+    def synthesize_to_audio_data(self, text: str) -> Optional[bytes]:
+        """
+        Convert text to speech and return raw audio data (WAV format)
+        Uses 1.1x speed and +5% pitch for natural, energetic delivery
+
+        Args:
+            text: Text to convert to speech
+
+        Returns:
+            Raw audio bytes (WAV format) or None if synthesis failed
+        """
+        try:
+            # Create speech synthesizer with no audio output (we'll get raw data)
+            speech_synthesizer = speechsdk.SpeechSynthesizer(
+                speech_config=self.speech_config,
+                audio_config=None  # No audio output, we'll get raw data
+            )
+
+            logger.info(f"Synthesizing text to audio data (length: {len(text)})")
+
+            # Use SSML for faster, more natural speech (1.1x speed)
+            ssml_text = f"""
+            <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
+                <voice name="{self.voice_name}">
+                    <prosody rate="1.1" pitch="+5%">{text}</prosody>
+                </voice>
+            </speak>
+            """
+
+            # Perform synthesis with SSML
+            result = speech_synthesizer.speak_ssml_async(ssml_text).get()
+
+            if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+                logger.info(f"Speech synthesis completed, audio data size: {len(result.audio_data)} bytes")
+                return result.audio_data  # Returns WAV format bytes
+            elif result.reason == speechsdk.ResultReason.Canceled:
+                cancellation = result.cancellation_details
+                logger.error(f"Speech synthesis canceled: {cancellation.reason}")
+                if cancellation.reason == speechsdk.CancellationReason.Error:
+                    logger.error(f"Error details: {cancellation.error_details}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error during speech synthesis to audio data: {e}")
+            return None
+
     def set_voice(self, voice_name: str):
         """
         Change the voice used for speech synthesis

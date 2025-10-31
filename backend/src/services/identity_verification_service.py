@@ -50,9 +50,9 @@ class IdentityVerificationService:
             }
 
             if overall_verified:
-                logger.info(f"Identity verified for senior: {senior_profile.get('fullName')}")
+                logger.info("Identity verified for senior (name suppressed)")
             else:
-                logger.warning(f"Identity verification failed for senior: {senior_profile.get('fullName')}")
+                logger.warning("Identity verification failed for senior (name suppressed)")
 
             return result
 

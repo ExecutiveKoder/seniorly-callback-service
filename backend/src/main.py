@@ -233,7 +233,7 @@ class SeniorHealthAgent:
                 print(f"⚠️  Senior profile not found")
                 return False
 
-            print(f"✅ Loaded profile for: {profile['fullName']}")
+            print(f"✅ Loaded profile")
 
             # Get last few sessions for context
             sessions = profile['callHistory']['sessions'][-3:]  # Last 3 calls
@@ -375,7 +375,7 @@ class SeniorHealthAgent:
                 print("   ❌ Could not hear your name. Please try again.")
                 return False
 
-            print(f"   Heard: {spoken_name}")
+            print(f"   Heard response (content suppressed)")
 
             # Ask for date of birth verification
             dob_prompt = "Please say your date of birth - month, day and year."
@@ -391,7 +391,7 @@ class SeniorHealthAgent:
                 print("   ❌ Could not hear your date of birth. Please try again.")
                 return False
 
-            print(f"   Heard: {spoken_dob}")
+            print(f"   Heard response (content suppressed)")
 
             # Perform verification using Azure data
             verification_result = verification_service.verify_identity(
@@ -448,7 +448,7 @@ class SeniorHealthAgent:
         senior_name = "John Wick"
 
         print("📞 INITIATING REAL OUTBOUND CALL")
-        print(f"   Calling: {phone_number}")
+        print(f"   Calling: [suppressed]")
 
         # Initialize AWS Connect service and make the call
         try:
@@ -474,7 +474,7 @@ class SeniorHealthAgent:
 
             print(f"✅ Call initiated successfully!")
             print(f"   Contact ID: {call_result['contact_id']}")
-            print(f"   📞 Your phone ({phone_number}) should be ringing now...")
+            print(f"   📞 Your phone should be ringing now...")
 
             # Wait for call to be answered
             import time
@@ -498,14 +498,14 @@ class SeniorHealthAgent:
                 key=config.AZURE_COSMOS_KEY,
                 database_name=config.COSMOS_DATABASE
             )
-            print(f"🔍 Looking up profile for phone: {phone_number}")
+            print(f"🔍 Looking up profile for phone: [suppressed]")
             profile = profile_service.get_senior_by_phone(phone_number)
             if profile:
                 senior_id = profile['seniorId']
                 full_name = profile['fullName']
                 # Extract only the first name
                 senior_name = full_name.split()[0] if full_name else None
-                print(f"✅ Found profile: {full_name} (ID: {senior_id[:8]}..., using first name: {senior_name})")
+                print(f"✅ Found profile (ID: {senior_id[:8]}...)")
             else:
                 print(f"⚠️  No profile found for {phone_number}")
         except Exception as e:
@@ -522,7 +522,7 @@ class SeniorHealthAgent:
             self.cost_tracker.reset_session_costs()
 
         print(f"\n📝 Session ID: {self.current_session_id}")
-        print(f"👤 Senior: {senior_name or 'Unknown'}\n")
+        print(f"👤 Senior: [suppressed]\n")
 
         # Get AI name from voice configuration
         ai_name = config.get_ai_name()
@@ -546,7 +546,7 @@ class SeniorHealthAgent:
         else:
             greeting = f"Hello! This is {ai_name} calling from Seniorly. How are you doing today?"
 
-        print(f"\n🤖 {ai_name}: {greeting}")
+        print(f"\n🤖 Response spoken (content suppressed)")
         self.speech.synthesize_to_speaker(greeting)
 
         # Track initial greeting speech synthesis
@@ -583,7 +583,7 @@ class SeniorHealthAgent:
                 time_warnings_given['4min30sec'] = True
                 warning_message = f"We have about 30 seconds left on our call. Is there anything urgent you need to mention?"
                 print(f"\n⚠️  4:30 warning")
-                print(f"🤖 {ai_name}: {warning_message}")
+                print(f"🤖 Response spoken (content suppressed)")
                 self.speech.synthesize_to_speaker(warning_message)
 
                 # Track warning message
@@ -596,7 +596,7 @@ class SeniorHealthAgent:
             elif elapsed_seconds >= 300:
                 final_message = f"Our time is up for today. We can continue tomorrow. Take care, {senior_name if senior_name else ''}!"
                 print(f"\n🛑 5-MINUTE HARD LIMIT REACHED")
-                print(f"🤖 {ai_name}: {final_message}")
+                print(f"🤖 Response spoken (content suppressed)")
                 self.speech.synthesize_to_speaker(final_message)
 
                 # Track final message
@@ -615,7 +615,7 @@ class SeniorHealthAgent:
                 print("⚠️  No speech detected. Please try again.")
                 continue
 
-            print(f"👤 You: {user_text}")
+            print(f"👤 You: [suppressed]")
             self.save_message("user", user_text)
 
             # Check for end conversation keywords (improved detection)
@@ -632,7 +632,7 @@ class SeniorHealthAgent:
             # Direct exit detection
             if any(phrase in user_lower for phrase in exit_phrases):
                 farewell = "Thank you for chatting with me today. Take care!"
-                print(f"\n🤖 {ai_name}: {farewell}")
+                print(f"\n🤖 Response spoken (content suppressed)")
                 self.speech.synthesize_to_speaker(farewell)
 
                 # Track farewell speech synthesis
@@ -645,7 +645,7 @@ class SeniorHealthAgent:
             # Short responses that indicate wanting to end (under 10 chars)
             if len(user_lower) < 10 and any(word in user_lower for word in ['bye', 'done', 'go', 'leave']):
                 farewell = "Take care! Goodbye."
-                print(f"\n🤖 {ai_name}: {farewell}")
+                print(f"\n🤖 Response spoken (content suppressed)")
                 self.speech.synthesize_to_speaker(farewell)
 
                 # Track short farewell speech synthesis
@@ -669,7 +669,7 @@ class SeniorHealthAgent:
                 print("❌ Failed to get AI response. Ending conversation.")
                 break
 
-            print(f"🤖 {ai_name}: {ai_response}")
+            print(f"🤖 Response spoken (content suppressed)")
 
             # Speak the response
             self.speech.synthesize_to_speaker(ai_response)
@@ -719,7 +719,7 @@ class SeniorHealthAgent:
 
         try:
             call_summary = self.openai.generate_call_summary()
-            print(f"✅ Summary: {call_summary}\n")
+            print(f"✅ Summary generated (content suppressed)\n")
 
             # Save summary to Cosmos DB in the senior's profile
             if phone_number and senior_name:
@@ -923,7 +923,7 @@ class SeniorHealthAgent:
                 print(f"✅ Call initiated successfully!")
                 print(f"   Contact ID: {call_result['contact_id']}")
                 print(f"   From: {config.AWS_CONNECT_PHONE_NUMBER}")
-                print(f"   To: {phone_number}")
+                print(f"   To: [suppressed]")
                 print("\n📞 The phone should be ringing now...")
                 print("⚠️  Note: You'll need a Contact Flow set up in AWS Connect to handle the call.")
             else:
@@ -958,7 +958,7 @@ class SeniorHealthAgent:
                 content = msg['content']
                 timestamp = msg.get('timestamp', 'Unknown')
                 print(f"{i}. [{role}] at {timestamp}")
-                print(f"   {content}\n")
+                print(f"   [content suppressed]\n")
 
         except Exception as e:
             logger.error(f"Error viewing history: {e}")

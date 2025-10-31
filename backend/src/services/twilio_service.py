@@ -26,7 +26,7 @@ class TwilioService:
         self.phone_number = phone_number
         self.client = Client(account_sid, auth_token)
 
-        logger.info(f"Twilio Service initialized with number: {phone_number}")
+        logger.info("Twilio Service initialized (outbound number suppressed)")
 
     def initiate_outbound_call(
         self,
@@ -46,7 +46,7 @@ class TwilioService:
             Dict with call details
         """
         try:
-            logger.info(f"Initiating call to {destination_phone} for {senior_name}")
+            logger.info("Initiating outbound call (destination and name suppressed)")
 
             call = self.client.calls.create(
                 to=destination_phone,
