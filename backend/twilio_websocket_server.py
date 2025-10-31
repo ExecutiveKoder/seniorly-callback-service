@@ -80,45 +80,10 @@ def has_significant_audio(pcm_data: bytes, threshold: float = 0.015) -> bool:
             logger.info(f"❌ Audio too quiet (RMS: {rms:.4f} < {threshold})")
             return False
 
-        # LAYER 2: Zero-Crossing Rate (Speech Pattern Detection)
-        # Speech has moderate ZCR (50-200 crossings/sec at 8kHz = 0.006-0.025)
-        # TV/music often has higher ZCR, constant noise has very low ZCR
-        zero_crossings = np.sum(np.abs(np.diff(np.sign(normalized)))) / 2
-        zcr = zero_crossings / len(normalized)
+        # DISABLED LAYERS 2-4: Too aggressive for phone audio
+        # Just use simple RMS threshold for now
 
-        if zcr < 0.003 or zcr > 0.04:
-            logger.info(f"❌ Unusual speech pattern (ZCR: {zcr:.5f}, expected 0.003-0.04)")
-            return False
-
-        # LAYER 3: Peak Detection (Dynamic Range)
-        # Human speech has clear peaks and valleys
-        # Background noise is more uniform
-        peak = np.max(np.abs(normalized))
-        dynamic_range = peak / (rms + 1e-6)  # Avoid division by zero
-
-        # Speech typically has dynamic range > 2.5
-        # Constant noise has lower dynamic range
-        if dynamic_range < 2.0:
-            logger.info(f"❌ Too uniform, likely background noise (dynamic range: {dynamic_range:.2f})")
-            return False
-
-        # LAYER 4: Spectral Centroid (Frequency Check)
-        # Human speech is mostly 300-3400 Hz
-        # Background noise often has different frequency profile
-        # Calculate simple spectral centroid approximation
-        fft = np.fft.rfft(normalized)
-        magnitude = np.abs(fft)
-        freqs = np.fft.rfftfreq(len(normalized), 1/8000)
-
-        if np.sum(magnitude) > 0:
-            spectral_centroid = np.sum(freqs * magnitude) / np.sum(magnitude)
-
-            # Speech should be in 300-3400 Hz range
-            if spectral_centroid < 200 or spectral_centroid > 3800:
-                logger.info(f"❌ Unusual frequency content (centroid: {spectral_centroid:.0f} Hz, expected 200-3800 Hz)")
-                return False
-
-        logger.info(f"✅ Valid speech detected (RMS: {rms:.4f}, ZCR: {zcr:.5f}, Dynamic: {dynamic_range:.2f})")
+        logger.info(f"✅ Audio detected (RMS: {rms:.4f})")
         return True
 
     except Exception as e:
