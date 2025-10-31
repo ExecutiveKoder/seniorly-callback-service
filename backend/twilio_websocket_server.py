@@ -12,7 +12,7 @@ NOISE FILTERING:
 - Sustained speech requirement: 1 chunk (2 seconds) before processing
 
 TIMEOUT HANDLING:
-- After 10 seconds of silence: Prompts "I'm sorry, I didn't catch that. Could you please speak a bit louder?"
+- After 20 seconds of silence: Prompts "I'm sorry, I didn't catch that. Could you please speak a bit louder?"
 - After 3 failed prompts: Ends call with "I'm having trouble hearing you. Let's try again another time. Goodbye!"
 """
 import sys
@@ -46,7 +46,7 @@ app = FastAPI(title="Twilio WebSocket Server")
 # Initialize SeniorHealthAgent (same as local version)
 agent = None
 
-def has_significant_audio(pcm_data: bytes, threshold: float = 0.03) -> bool:
+def has_significant_audio(pcm_data: bytes, threshold: float = 0.015) -> bool:
     """
     Multi-layer audio detection to filter background noise and ensure close proximity speech.
 
@@ -445,15 +445,15 @@ async def media_stream(websocket: WebSocket):
                     pcm_data = audioop.ulaw2lin(bytes(audio_buffer), 2)
 
                     # Check if audio has significant volume (filters background TV noise)
-                    # Threshold 0.03 = balanced for phone audio levels
-                    if not has_significant_audio(pcm_data, threshold=0.03):
+                    # Threshold 0.015 = tuned for actual Twilio phone audio levels
+                    if not has_significant_audio(pcm_data, threshold=0.015):
                         logger.info("🔇 Background noise detected, ignoring")
                         audio_buffer.clear()
                         speech_counter = 0  # Reset speech counter
                         silence_counter += 1
 
-                        # After 10 seconds of silence (5 chunks x 2 seconds), prompt user
-                        if silence_counter >= 5:
+                        # After 20 seconds of silence (10 chunks x 2 seconds), prompt user
+                        if silence_counter >= 10:
                             no_response_attempts += 1
                             logger.info(f"⏱️ No response detected (attempt {no_response_attempts}/{MAX_NO_RESPONSE_ATTEMPTS})")
 
