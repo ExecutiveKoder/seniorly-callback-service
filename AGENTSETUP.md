@@ -66,10 +66,10 @@ Complete guide to replicate this Azure-based voice agent architecture for senior
 
 **Key Features:**
 - ✅ **Pre-loaded Context**: Load senior history BEFORE calling (eliminates 30s delay)
-- ✅ **Adaptive Voice Detection**: Learns ambient noise per call (handles variable phone audio)
+- ✅ **Azure Speech Streaming STT (Local Parity)**: Feeds Twilio audio to Azure Speech; Azure’s VAD handles turn‑taking and noise isolation
 - ✅ **Natural TTS**: Normalizes overly enthusiastic AI responses for calm speech
 - ✅ **No Cold Starts**: Min replicas = 1, always warm
-- ✅ **Sustained Speech Gating**: Requires valid speech before processing (reduces false positives)
+- ✅ **Optional Custom VAD**: WebRTC VAD with tunable thresholds (enable only if needed)
 
 ---
 
@@ -318,8 +318,9 @@ az containerapp create \
 - The launcher `run_app.sh` auto-prepends `https://` to `.azure_endpoint` if it contains only the FQDN.
 
 ### VAD Tuning Notes
-- If the agent struggles to hear: try `VAD_AGGRESSIVENESS=1` or lower `VAD_ON_MIN_VOICED` to 7.
-- If it hears background/TV: try `VAD_AGGRESSIVENESS=3` or raise `VAD_ON_MIN_VOICED` to 9.
+- Local‑mode parity (recommended): set `VAD_USE_WEBRTC=false` to rely fully on Azure Speech VAD.
+- If the agent struggles to hear with custom VAD: try `VAD_AGGRESSIVENESS=1` or lower `VAD_ON_MIN_VOICED` to 7.
+- If it hears background/TV with custom VAD: try `VAD_AGGRESSIVENESS=3` or raise `VAD_ON_MIN_VOICED` to 9.
 - Prompt timing: adjust `VAD_PROMPT_GRACE_SECONDS` (after TTS) and `VAD_SILENCE_CHUNKS_TO_PROMPT` (silence before prompt).
 
 ---

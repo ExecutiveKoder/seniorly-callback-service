@@ -588,6 +588,20 @@ Tuning tips
 - “Hears background/TV”: raise `VAD_AGGRESSIVENESS` to 3, or increase `VAD_ON_MIN_VOICED` to 9; consider lengthening `VAD_OFF_CONSEC_UNVOICED`.
 - “Prompts too fast/slow”: adjust `VAD_PROMPT_GRACE_SECONDS` (min time after TTS) and `VAD_SILENCE_CHUNKS_TO_PROMPT` (silence before prompt).
 
+### Local-mode parity: Azure Speech streaming STT
+- For the closest behavior to local testing, feed Twilio audio directly into Azure Speech’s streaming STT (PushAudioInputStream) and let Azure’s built‑in VAD handle turn‑taking and noise suppression.
+- Duplex control still applies (mute input while TTS + cooldown), but do not gate with custom VAD.
+
+Recommended configuration for “local-like” behavior:
+```
+VAD_USE_WEBRTC=false          # disable custom gates, rely on Azure Speech VAD
+VAD_COOLDOWN_MS=600           # keep duplex cooldown after TTS
+VAD_PROMPT_GRACE_SECONDS=5    # avoid immediate re-prompts after TTS
+```
+Notes:
+- This approach typically improves noise isolation at normal phone volumes.
+- It may increase STT usage slightly due to continuous streaming.
+
 ### Turn-Taking and Latency
 
 - Processing window ~0.5 s for quicker acknowledgements

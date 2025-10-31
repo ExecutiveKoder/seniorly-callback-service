@@ -38,6 +38,7 @@ from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import Response
 import uvicorn
 import webrtcvad
+import azure.cognitiveservices.speech as speechsdk
 
 from src.config import config
 from src.main import SeniorHealthAgent
