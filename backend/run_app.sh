@@ -18,6 +18,19 @@ echo -e "${CYAN}║${NC}  ${GREEN}🎙️  SENIORLY VOICE AGENT${NC}            
 echo -e "${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
+# Activate virtual environment if it exists
+if [ -d "venv" ]; then
+    echo -e "${GREEN}✅ Activating virtual environment...${NC}"
+    source venv/bin/activate
+else
+    echo -e "${YELLOW}⚠️  No virtual environment found. Creating one...${NC}"
+    python3 -m venv venv
+    source venv/bin/activate
+    echo -e "${GREEN}✅ Installing dependencies...${NC}"
+    pip install -r requirements.txt > /dev/null 2>&1
+fi
+echo ""
+
 # Load environment variables
 if [ ! -f ".env" ]; then
     echo -e "${RED}❌ ERROR: .env file not found${NC}"
@@ -60,7 +73,7 @@ case $main_choice in
         echo ""
         echo -e "${GREEN}🎤 Starting local voice testing...${NC}"
         echo ""
-        python3 src/main.py --voice
+        python src/main.py --voice
         ;;
     2)
         # Phone calls using Azure endpoint
@@ -90,7 +103,7 @@ case $main_choice in
         echo ""
         echo -e "${YELLOW}📞 Calling ${phone_number}...${NC}"
 
-        python3 - <<EOF
+        python - <<EOF
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path.cwd()))
@@ -157,7 +170,7 @@ EOF
         echo $! > "$NGROK_PID_FILE"
         sleep 4
 
-        WEBHOOK_URL=$(curl -s http://localhost:4040/api/tunnels | python3 -c "import sys, json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])" 2>/dev/null || echo "")
+        WEBHOOK_URL=$(curl -s http://localhost:4040/api/tunnels | python -c "import sys, json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])" 2>/dev/null || echo "")
 
         if [ -z "$WEBHOOK_URL" ]; then
             echo -e "${RED}❌ Failed to get ngrok URL${NC}"
@@ -185,7 +198,7 @@ EOF
                     read -p "Name (default: John): " name
                     name=${name:-John}
 
-                    python3 - <<PYTHON_EOF
+                    python - <<PYTHON_EOF
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path.cwd()))
