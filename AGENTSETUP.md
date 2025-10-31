@@ -97,7 +97,7 @@ az cognitiveservices account create \
   --location eastus2
 ```
 
-**Recommended Voice**: `en-US-JasonNeural` (realistic, professional)
+**Recommended Voice**: `en-US-SaraNeural` (warm, empathetic, female voice for senior health check-ins)
 
 **What you need**: Endpoint, API key, region
 
@@ -156,37 +156,45 @@ az redis create \
 
 ---
 
-### 5. Azure SQL Database (Analytics)
+### 5. Azure PostgreSQL Database (Analytics)
 ```bash
-# Create SQL Server
-az sql server create \
-  --name seniorly-sql-server \
-  --resource-group voice-agent-rg \
-  --location eastus2 \
-  --admin-user sqladmin \
-  --admin-password 'YourSecurePassword!'
+# Register PostgreSQL provider (one-time)
+az provider register --namespace Microsoft.DBforPostgreSQL
 
-# Create Database
-az sql db create \
+# Create PostgreSQL Flexible Server
+az postgres flexible-server create \
   --resource-group voice-agent-rg \
-  --server seniorly-sql-server \
-  --name SeniorHealthAnalytics \
-  --service-objective Basic
+  --name seniorly-postgres-server \
+  --location centralus \
+  --admin-user pgadmin \
+  --admin-password 'YOUR_64_CHAR_SECURE_PASSWORD' \
+  --sku-name Standard_B2s \
+  --tier Burstable \
+  --storage-size 32 \
+  --version 16 \
+  --public-access 0.0.0.0-255.255.255.255 \
+  --yes
 
-# Configure firewall (allow Azure services)
-az sql server firewall-rule create \
+# Create database
+az postgres flexible-server db create \
   --resource-group voice-agent-rg \
-  --server seniorly-sql-server \
-  --name AllowAzureServices \
-  --start-ip-address 0.0.0.0 \
-  --end-ip-address 0.0.0.0
+  --server-name seniorly-postgres-server \
+  --database-name SeniorHealthAnalytics
+
+# Run the auto-firewall update script (updates your IP automatically)
+./backend/scripts/update_postgres_firewall.sh
+
+# Optional: Set up cron job to run firewall script daily
+# (crontab -e) Add: 0 9 * * * /path/to/update_postgres_firewall.sh
 ```
 
-**Schema**: See `/backend/database/schema.sql`
+**Schema**: See `/backend/database/schema_postgres.sql`
+
+**Setup**: Run `python backend/database/setup_database_postgres.py` to create tables
 
 **Tables**:
 - `senior_vitals`: Blood pressure, heart rate, weight, sleep, pain
-- `cognitive_assessments`: Memory, orientation, coherence scores
+- `cognitive_assessments`: Memory, orientation, coherence scores (includes 4-dimension cognitive testing)
 - `call_summary`: AI-generated summaries of each call
 - `health_alerts`: Abnormal vitals, concerning patterns
 - `medication_adherence`: Medication tracking
