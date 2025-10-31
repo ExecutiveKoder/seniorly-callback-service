@@ -79,8 +79,14 @@ class CosmosDBService:
             metadata: Optional metadata
         """
         try:
-            # Read the session
-            session = self.container.read_item(item=session_id, partition_key=session_id)
+            # Try to read the session
+            try:
+                session = self.container.read_item(item=session_id, partition_key=session_id)
+            except cosmos_exceptions.CosmosResourceNotFoundError:
+                # Session doesn't exist, create it
+                logger.info(f"Session {session_id} not found, creating new session")
+                self.create_session(session_id=session_id)
+                session = self.container.read_item(item=session_id, partition_key=session_id)
 
             # Add message
             message = {
@@ -146,8 +152,14 @@ class CosmosDBService:
             metadata: Metadata dictionary to merge with existing metadata
         """
         try:
-            # Read the session
-            session = self.container.read_item(item=session_id, partition_key=session_id)
+            # Try to read the session
+            try:
+                session = self.container.read_item(item=session_id, partition_key=session_id)
+            except cosmos_exceptions.CosmosResourceNotFoundError:
+                # Session doesn't exist, create it
+                logger.info(f"Session {session_id} not found, creating new session")
+                self.create_session(session_id=session_id)
+                session = self.container.read_item(item=session_id, partition_key=session_id)
 
             # Merge new metadata with existing
             if "metadata" not in session:
