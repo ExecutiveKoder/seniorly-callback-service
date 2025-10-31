@@ -1,0 +1,26 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "HTTP_Health_Check": {
+        "inputs": {
+          "method": "GET",
+          "uri": "https://voice-agent-backend.grayriver-5405228a.eastus2.azurecontainerapps.io/health"
+        },
+        "runAfter": {},
+        "type": "Http"
+      }
+    },
+    "contentVersion": "1.0.0.0",
+    "outputs": {},
+    "triggers": {
+      "Every_2_Minutes": {
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 2
+        },
+        "type": "Recurrence"
+      }
+    }
+  }
+}
