@@ -90,6 +90,32 @@ case $main_choice in
         echo -e "${GREEN}✅ Using Azure endpoint:${NC} ${CYAN}${WEBHOOK_URL}${NC}"
         echo ""
 
+        # Wait for services to warm up
+        echo -e "${YELLOW}⏳ Checking if container is ready...${NC}"
+        MAX_RETRIES=30
+        RETRY_COUNT=0
+        HEALTH_URL="${WEBHOOK_URL}/health"
+
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null || echo "000")
+
+            if [ "$HTTP_CODE" = "200" ]; then
+                echo -e "${GREEN}✅ Container is ready! All services initialized.${NC}"
+                echo ""
+                break
+            fi
+
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo -e "   Still warming up... ($RETRY_COUNT/$MAX_RETRIES)"
+            sleep 2
+        done
+
+        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            echo -e "${RED}❌ Container failed to become ready after $MAX_RETRIES attempts${NC}"
+            echo -e "${YELLOW}Try again in a few minutes or check Azure logs${NC}"
+            exit 1
+        fi
+
         # Make call using Azure endpoint
         read -p "Enter phone number to call (e.g., 289-324-2125): " phone_number
         if [ -z "$phone_number" ]; then

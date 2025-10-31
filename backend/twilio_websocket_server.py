@@ -2,7 +2,7 @@
 """
 Twilio WebSocket Server for Real-Time Voice with Azure Speech
 Integrated with SeniorHealthAgent for full conversation management
-Version: 2.0 - WebSocket initialization moved to start event
+Version: 2.1 - Added health check + background noise filtering
 """
 import sys
 from pathlib import Path
@@ -15,6 +15,7 @@ import logging
 import wave
 import io
 import audioop
+import numpy as np
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import Response
 import uvicorn
@@ -33,6 +34,35 @@ app = FastAPI(title="Twilio WebSocket Server")
 
 # Initialize SeniorHealthAgent (same as local version)
 agent = None
+
+def has_significant_audio(pcm_data: bytes, threshold: float = 0.02) -> bool:
+    """
+    Check if audio has significant volume above background noise threshold
+    Helps filter out TV noise, distant conversations, etc.
+
+    Args:
+        pcm_data: Raw PCM audio bytes (16-bit)
+        threshold: RMS threshold (0.0-1.0), default 0.02 filters most background noise
+
+    Returns:
+        True if audio is above threshold, False if it's just background noise
+    """
+    try:
+        # Convert bytes to numpy array of 16-bit integers
+        audio_array = np.frombuffer(pcm_data, dtype=np.int16)
+
+        # Normalize to -1.0 to 1.0 range
+        normalized = audio_array.astype(np.float32) / 32768.0
+
+        # Calculate RMS (Root Mean Square) energy
+        rms = np.sqrt(np.mean(normalized ** 2))
+
+        logger.info(f"Audio RMS energy: {rms:.4f} (threshold: {threshold})")
+
+        return rms > threshold
+    except Exception as e:
+        logger.error(f"Error checking audio level: {e}")
+        return True  # Default to processing if check fails
 
 def convert_mulaw_to_pcm_wav(mulaw_data: bytes, output_file: str):
     """Convert Twilio's mulaw 8kHz audio to PCM WAV for Azure Speech"""
@@ -134,6 +164,56 @@ async def startup():
     except Exception as e:
         logger.error(f"Failed to initialize SeniorHealthAgent: {e}")
         raise
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint - verifies all services are initialized and ready"""
+    if agent is None:
+        logger.warning("Health check failed: Agent not initialized")
+        return Response(
+            content=json.dumps({"status": "unhealthy", "reason": "Agent not initialized"}),
+            status_code=503,
+            media_type="application/json"
+        )
+
+    # Check if agent's services are ready
+    try:
+        if not hasattr(agent, 'speech') or agent.speech is None:
+            return Response(
+                content=json.dumps({"status": "unhealthy", "reason": "Speech service not ready"}),
+                status_code=503,
+                media_type="application/json"
+            )
+        if not hasattr(agent, 'openai') or agent.openai is None:
+            return Response(
+                content=json.dumps({"status": "unhealthy", "reason": "OpenAI service not ready"}),
+                status_code=503,
+                media_type="application/json"
+            )
+        if not hasattr(agent, 'data') or agent.data is None:
+            return Response(
+                content=json.dumps({"status": "unhealthy", "reason": "Data service not ready"}),
+                status_code=503,
+                media_type="application/json"
+            )
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return Response(
+            content=json.dumps({"status": "unhealthy", "reason": str(e)}),
+            status_code=503,
+            media_type="application/json"
+        )
+
+    logger.info("Health check passed: All services ready")
+    return {
+        "status": "healthy",
+        "services": {
+            "agent": "ready",
+            "speech": "ready",
+            "openai": "ready",
+            "data": "ready"
+        }
+    }
 
 @app.post("/voice/status")
 async def voice_status(request: Request):
@@ -277,6 +357,15 @@ async def media_stream(websocket: WebSocket):
                 # Process when we have enough audio (~2 seconds)
                 if len(audio_buffer) >= 16000:
                     logger.info(f"Processing audio chunk ({len(audio_buffer)} bytes)")
+
+                    # Convert mulaw to PCM to check audio levels first
+                    pcm_data = audioop.ulaw2lin(bytes(audio_buffer), 2)
+
+                    # Check if audio has significant volume (filters background TV noise)
+                    if not has_significant_audio(pcm_data, threshold=0.02):
+                        logger.info("Audio below threshold - likely background noise, skipping")
+                        audio_buffer.clear()
+                        continue
 
                     # Convert Twilio mulaw to PCM WAV for Azure
                     temp_audio = "/tmp/caller_audio.wav"

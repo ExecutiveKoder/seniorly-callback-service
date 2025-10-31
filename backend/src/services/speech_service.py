@@ -32,7 +32,23 @@ class SpeechService:
         )
         self.speech_config.speech_synthesis_voice_name = self.voice_name
 
-        logger.info(f"Speech Service initialized with voice: {self.voice_name}")
+        # Enable noise suppression for better recognition in noisy environments
+        # This helps filter out TV, background conversations, etc.
+        self.speech_config.set_property(
+            speechsdk.PropertyId.SpeechServiceConnection_InitialSilenceTimeoutMs,
+            "5000"  # 5 seconds of silence before timing out
+        )
+        self.speech_config.set_property(
+            speechsdk.PropertyId.SpeechServiceConnection_EndSilenceTimeoutMs,
+            "1000"  # 1 second of silence to end utterance
+        )
+        # Enable enhanced noise suppression
+        self.speech_config.set_property(
+            speechsdk.PropertyId.SpeechServiceResponse_PostProcessingOption,
+            "TrueText"  # Enables profanity filtering and improved punctuation
+        )
+
+        logger.info(f"Speech Service initialized with voice: {self.voice_name} (noise suppression enabled)")
 
     def recognize_from_microphone(self) -> Optional[str]:
         """
