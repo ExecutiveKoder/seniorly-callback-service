@@ -336,9 +336,10 @@ async def media_stream(websocket: WebSocket):
             data = json.loads(message)
 
             if data.get('event') == 'start':
+                import time
+                start_time = time.time()
                 stream_sid = data['start']['streamSid']
-                logger.info(f"Stream started: {stream_sid}")
-                logger.info("Initializing session after stream start")
+                logger.info(f"⏱️ [0.00s] Stream started: {stream_sid}")
 
                 # Initialize session when stream starts (same as original working version)
                 from src.services.profile_service import SeniorProfileService
@@ -350,26 +351,32 @@ async def media_stream(websocket: WebSocket):
                 context_loaded = False
 
                 try:
+                    t1 = time.time()
                     profile_service = SeniorProfileService(
                         endpoint=config.AZURE_COSMOS_ENDPOINT,
                         key=config.AZURE_COSMOS_KEY,
                         database_name=config.COSMOS_DATABASE
                     )
-                    logger.info(f"Looking up profile for phone: {phone_number}")
+                    logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Profile service initialized")
+
                     profile = profile_service.get_senior_by_phone(phone_number)
+                    logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Profile lookup complete")
+
                     if profile:
                         senior_id = profile['seniorId']
                         full_name = profile['fullName']
                         senior_name = full_name.split()[0] if full_name else None
-                        logger.info(f"Found profile (ID: {senior_id[:8]}...)")
+                        logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Profile parsed")
                 except Exception as e:
                     logger.error(f"Could not get senior profile: {e}")
 
                 # Load senior context (call history)
                 context_loaded = agent._load_senior_context(phone_number)
+                logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Context loaded: {context_loaded}")
 
                 # Start session with name and ID
                 agent.start_new_session(senior_name=senior_name, senior_id=senior_id)
+                logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Session started")
                 logger.info(f"Started session {agent.current_session_id}")
 
                 # Update system prompt with senior's name
@@ -382,6 +389,8 @@ async def media_stream(websocket: WebSocket):
                     generic_prompt = SENIOR_HEALTH_SYSTEM_PROMPT.replace("[Name]", "them").replace("[Your AI Name]", ai_name)
                     agent.openai.set_system_prompt(generic_prompt)
 
+                logger.info(f"⏱️ [{time.time() - start_time:.2f}s] System prompt set")
+
                 # Generate personalized greeting (EXACT same logic as local)
                 if context_loaded and senior_name:
                     greeting = f"Hello {senior_name}! This is {ai_name} calling from Seniorly. It's good to talk with you again today. How are you doing?"
@@ -391,16 +400,20 @@ async def media_stream(websocket: WebSocket):
                     greeting = f"Hello! This is {ai_name} calling from Seniorly. How are you doing today?"
 
                 agent.save_message("assistant", greeting)
+                logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Greeting saved to DB")
 
                 # Send personalized greeting immediately
                 if not greeting_sent and greeting:
                     agent_is_speaking = True
+                    logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Starting TTS generation...")
                     await send_audio_to_twilio(websocket, stream_sid, greeting)
+                    logger.info(f"⏱️ [{time.time() - start_time:.2f}s] TTS sent to Twilio")
                     greeting_sent = True
                     # Wait a bit for greeting to finish playing, then allow user input
                     await asyncio.sleep(2)
                     agent_is_speaking = False
                     audio_buffer.clear()  # Clear any audio received during greeting
+                    logger.info(f"⏱️ [{time.time() - start_time:.2f}s] Ready for user speech")
 
             elif data.get('event') == 'media':
                 # Ignore incoming audio while agent is speaking
@@ -429,9 +442,9 @@ async def media_stream(websocket: WebSocket):
                             logger.info(f"📊 Learning ambient noise: {rms:.4f} (sample {len(ambient_noise_samples)}/5)")
 
                             if len(ambient_noise_samples) == 5:
-                                # Set threshold to 3x the average ambient noise (6-10 dB above)
+                                # Set threshold to 4x the average ambient noise (allows for speech variation)
                                 avg_ambient = np.mean(ambient_noise_samples)
-                                ambient_noise_threshold = max(0.010, avg_ambient * 3.0)
+                                ambient_noise_threshold = max(0.005, avg_ambient * 4.0)  # Lower minimum, higher multiplier
                                 learning_ambient = False
                                 logger.info(f"✅ Ambient noise learned: avg={avg_ambient:.4f}, threshold={ambient_noise_threshold:.4f}")
 
