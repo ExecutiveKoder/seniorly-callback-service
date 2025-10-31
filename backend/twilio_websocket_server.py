@@ -178,6 +178,7 @@ async def media_stream(websocket: WebSocket):
     audio_buffer = bytearray()
     greeting_sent = False
     stream_sid = None
+    agent_is_speaking = False  # Flag to ignore incoming audio while agent speaks
 
     # Get phone number from query params (will be passed by run_app.sh)
     # For now, use a default for testing
@@ -247,10 +248,19 @@ async def media_stream(websocket: WebSocket):
 
                 # Send personalized greeting
                 if not greeting_sent:
+                    agent_is_speaking = True
                     await send_audio_to_twilio(websocket, stream_sid, greeting)
                     greeting_sent = True
+                    # Wait a bit for greeting to finish playing, then allow user input
+                    await asyncio.sleep(2)
+                    agent_is_speaking = False
+                    audio_buffer.clear()  # Clear any audio received during greeting
 
             elif data.get('event') == 'media':
+                # Ignore incoming audio while agent is speaking
+                if agent_is_speaking:
+                    continue
+
                 # Received audio from the caller
                 payload = data['media']['payload']
                 audio_chunk = base64.b64decode(payload)
