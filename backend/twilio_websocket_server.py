@@ -11,9 +11,14 @@ NOISE FILTERING:
 - Layer 4: Spectral centroid (checks frequency content for human speech range)
 - Sustained speech requirement: 1 chunk (2 seconds) before processing
 
+ADAPTIVE NOISE FILTERING:
+- Learns ambient noise floor from first 10 seconds of call
+- Sets threshold to 3x ambient noise (minimum 0.010)
+- Adapts to each environment automatically
+
 TIMEOUT HANDLING:
-- After 20 seconds of silence: Prompts "I'm sorry, I didn't catch that. Could you please speak a bit louder?"
-- After 3 failed prompts: Ends call with "I'm having trouble hearing you. Let's try again another time. Goodbye!"
+- After 30 seconds of silence: Prompts "I'm sorry, I didn't catch that. Could you please speak a bit louder?"
+- After 3 failed prompts: Ends call gracefully
 """
 import sys
 from pathlib import Path
@@ -315,6 +320,11 @@ async def media_stream(websocket: WebSocket):
     no_response_attempts = 0  # Track how many times we've asked user to respond
     MAX_NO_RESPONSE_ATTEMPTS = 3  # End call after 3 failed prompts
 
+    # Adaptive noise floor learning
+    ambient_noise_samples = []
+    ambient_noise_threshold = 0.015  # Start with default
+    learning_ambient = True  # Learn ambient noise for first 5 chunks
+
     # Get phone number from query params (will be passed by run_app.sh)
     # For now, use a default for testing
     phone_number = "289-324-2125"  # TODO: Get from URL params
@@ -409,16 +419,35 @@ async def media_stream(websocket: WebSocket):
                     # Convert mulaw to PCM to check audio levels first
                     pcm_data = audioop.ulaw2lin(bytes(audio_buffer), 2)
 
-                    # Check if audio has significant volume (filters background TV noise)
-                    # Threshold 0.015 = tuned for actual Twilio phone audio levels
-                    if not has_significant_audio(pcm_data, threshold=0.015):
+                    # Learn ambient noise for first 5 chunks (10 seconds)
+                    if learning_ambient and len(ambient_noise_samples) < 5:
+                        audio_array = np.frombuffer(pcm_data, dtype=np.int16)
+                        if len(audio_array) > 0:
+                            normalized = audio_array.astype(np.float32) / 32768.0
+                            rms = np.sqrt(np.mean(normalized ** 2))
+                            ambient_noise_samples.append(rms)
+                            logger.info(f"📊 Learning ambient noise: {rms:.4f} (sample {len(ambient_noise_samples)}/5)")
+
+                            if len(ambient_noise_samples) == 5:
+                                # Set threshold to 3x the average ambient noise (6-10 dB above)
+                                avg_ambient = np.mean(ambient_noise_samples)
+                                ambient_noise_threshold = max(0.010, avg_ambient * 3.0)
+                                learning_ambient = False
+                                logger.info(f"✅ Ambient noise learned: avg={avg_ambient:.4f}, threshold={ambient_noise_threshold:.4f}")
+
+                        audio_buffer.clear()
+                        continue
+
+                    # Check if audio has significant volume (filters background noise)
+                    # Use adaptive threshold based on learned ambient noise
+                    if not has_significant_audio(pcm_data, threshold=ambient_noise_threshold):
                         logger.info("🔇 Background noise detected, ignoring")
                         audio_buffer.clear()
                         speech_counter = 0  # Reset speech counter
                         silence_counter += 1
 
-                        # After 20 seconds of silence (10 chunks x 2 seconds), prompt user
-                        if silence_counter >= 10:
+                        # After 30 seconds of silence (15 chunks x 2 seconds), prompt user
+                        if silence_counter >= 15:
                             no_response_attempts += 1
                             logger.info(f"⏱️ No response detected (attempt {no_response_attempts}/{MAX_NO_RESPONSE_ATTEMPTS})")
 
