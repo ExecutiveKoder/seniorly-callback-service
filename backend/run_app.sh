@@ -73,7 +73,7 @@ case $main_choice in
         echo ""
         echo -e "${GREEN}🎤 Starting local voice testing...${NC}"
         echo ""
-        python src/main.py --voice
+        ./venv/bin/python src/main.py --voice
         ;;
     2)
         # Phone calls using Azure endpoint
@@ -103,7 +103,7 @@ case $main_choice in
         echo ""
         echo -e "${YELLOW}📞 Calling ${phone_number}...${NC}"
 
-        python - <<EOF
+        ./venv/bin/python - <<EOF
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path.cwd()))
@@ -170,7 +170,7 @@ EOF
         echo $! > "$NGROK_PID_FILE"
         sleep 4
 
-        WEBHOOK_URL=$(curl -s http://localhost:4040/api/tunnels | python -c "import sys, json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])" 2>/dev/null || echo "")
+        WEBHOOK_URL=$(curl -s http://localhost:4040/api/tunnels | ./venv/bin/python -c "import sys, json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])" 2>/dev/null || echo "")
 
         if [ -z "$WEBHOOK_URL" ]; then
             echo -e "${RED}❌ Failed to get ngrok URL${NC}"
@@ -198,7 +198,7 @@ EOF
                     read -p "Name (default: John): " name
                     name=${name:-John}
 
-                    python - <<PYTHON_EOF
+                    ./venv/bin/python - <<PYTHON_EOF
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path.cwd()))
