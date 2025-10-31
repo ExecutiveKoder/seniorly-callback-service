@@ -2,7 +2,14 @@
 """
 Twilio WebSocket Server for Real-Time Voice with Azure Speech
 Integrated with SeniorHealthAgent for full conversation management
-Version: 2.4 - Reverted to working version (init on 'start' event) + health check + noise filtering
+Version: 2.5 - Enhanced multi-layer noise filtering for close-proximity speech detection
+
+NOISE FILTERING IMPROVEMENTS:
+- Layer 1: RMS energy threshold increased to 0.05 (requires louder audio = closer to mic)
+- Layer 2: Zero-crossing rate (detects speech patterns vs TV/music)
+- Layer 3: Dynamic range detection (speech has peaks/valleys, noise is uniform)
+- Layer 4: Spectral centroid (checks frequency content for human speech range)
+- Sustained speech requirement: Requires 2 consecutive chunks (~4 seconds) before processing
 """
 import sys
 from pathlib import Path
@@ -35,31 +42,81 @@ app = FastAPI(title="Twilio WebSocket Server")
 # Initialize SeniorHealthAgent (same as local version)
 agent = None
 
-def has_significant_audio(pcm_data: bytes, threshold: float = 0.02) -> bool:
+def has_significant_audio(pcm_data: bytes, threshold: float = 0.05) -> bool:
     """
-    Check if audio has significant volume above background noise threshold
-    Helps filter out TV noise, distant conversations, etc.
+    Multi-layer audio detection to filter background noise and ensure close proximity speech.
+
+    Layers:
+    1. Volume threshold (RMS energy)
+    2. Zero-crossing rate (distinguishes speech from continuous noise like TV)
+    3. Peak detection (ensures dynamic range typical of human speech)
 
     Args:
         pcm_data: Raw PCM audio bytes (16-bit)
-        threshold: RMS threshold (0.0-1.0), default 0.02 filters most background noise
+        threshold: RMS threshold (0.0-1.0), default 0.05 requires louder audio (closer to mic)
 
     Returns:
-        True if audio is above threshold, False if it's just background noise
+        True if audio appears to be close-proximity human speech, False otherwise
     """
     try:
         # Convert bytes to numpy array of 16-bit integers
         audio_array = np.frombuffer(pcm_data, dtype=np.int16)
 
+        if len(audio_array) == 0:
+            return False
+
         # Normalize to -1.0 to 1.0 range
         normalized = audio_array.astype(np.float32) / 32768.0
 
-        # Calculate RMS (Root Mean Square) energy
+        # LAYER 1: RMS Energy (Volume Check)
+        # Higher threshold = requires louder audio = must be closer to mic
         rms = np.sqrt(np.mean(normalized ** 2))
 
-        logger.info(f"Audio RMS energy: {rms:.4f} (threshold: {threshold})")
+        if rms < threshold:
+            logger.info(f"❌ Audio too quiet (RMS: {rms:.4f} < {threshold})")
+            return False
 
-        return rms > threshold
+        # LAYER 2: Zero-Crossing Rate (Speech Pattern Detection)
+        # Speech has moderate ZCR (50-200 crossings/sec at 8kHz = 0.006-0.025)
+        # TV/music often has higher ZCR, constant noise has very low ZCR
+        zero_crossings = np.sum(np.abs(np.diff(np.sign(normalized)))) / 2
+        zcr = zero_crossings / len(normalized)
+
+        if zcr < 0.003 or zcr > 0.04:
+            logger.info(f"❌ Unusual speech pattern (ZCR: {zcr:.5f}, expected 0.003-0.04)")
+            return False
+
+        # LAYER 3: Peak Detection (Dynamic Range)
+        # Human speech has clear peaks and valleys
+        # Background noise is more uniform
+        peak = np.max(np.abs(normalized))
+        dynamic_range = peak / (rms + 1e-6)  # Avoid division by zero
+
+        # Speech typically has dynamic range > 2.5
+        # Constant noise has lower dynamic range
+        if dynamic_range < 2.0:
+            logger.info(f"❌ Too uniform, likely background noise (dynamic range: {dynamic_range:.2f})")
+            return False
+
+        # LAYER 4: Spectral Centroid (Frequency Check)
+        # Human speech is mostly 300-3400 Hz
+        # Background noise often has different frequency profile
+        # Calculate simple spectral centroid approximation
+        fft = np.fft.rfft(normalized)
+        magnitude = np.abs(fft)
+        freqs = np.fft.rfftfreq(len(normalized), 1/8000)
+
+        if np.sum(magnitude) > 0:
+            spectral_centroid = np.sum(freqs * magnitude) / np.sum(magnitude)
+
+            # Speech should be in 300-3400 Hz range
+            if spectral_centroid < 200 or spectral_centroid > 3800:
+                logger.info(f"❌ Unusual frequency content (centroid: {spectral_centroid:.0f} Hz, expected 200-3800 Hz)")
+                return False
+
+        logger.info(f"✅ Valid speech detected (RMS: {rms:.4f}, ZCR: {zcr:.5f}, Dynamic: {dynamic_range:.2f})")
+        return True
+
     except Exception as e:
         logger.error(f"Error checking audio level: {e}")
         return True  # Default to processing if check fails
@@ -161,6 +218,28 @@ async def startup():
     try:
         agent = SeniorHealthAgent()
         logger.info(f"✅ SeniorHealthAgent ready - AI: {config.get_ai_name()}, Voice: {config.SPEECH_VOICE_NAME}")
+
+        # Warm up external services to reduce first-call latency
+        # - Perform a tiny TTS synthesis
+        # - Perform a tiny OpenAI chat
+        try:
+            async def warm_tts():
+                await asyncio.to_thread(agent.speech.synthesize_to_audio_data, "Hello")
+
+            async def warm_openai():
+                await asyncio.to_thread(agent.openai.chat, "hi", 0.0, 1)
+
+            logger.info("Warming up Speech and OpenAI services...")
+            await asyncio.wait(
+                [
+                    asyncio.create_task(asyncio.wait_for(warm_tts(), timeout=5)),
+                    asyncio.create_task(asyncio.wait_for(warm_openai(), timeout=5)),
+                ],
+                return_when=asyncio.ALL_COMPLETED,
+            )
+            logger.info("Warmup complete")
+        except Exception as warm_err:
+            logger.warning(f"Warmup skipped or partial: {warm_err}")
     except Exception as e:
         logger.error(f"Failed to initialize SeniorHealthAgent: {e}")
         raise
@@ -229,6 +308,7 @@ async def voice_webhook(request: Request):
     digits = form_data.get('Digits', None)
 
     logger.info("Incoming webhook received (content suppressed)")
+    logger.info("Generating TwiML to start media stream")
 
     # Create TwiML response
     from twilio.twiml.voice_response import VoiceResponse, Connect
@@ -260,6 +340,9 @@ async def media_stream(websocket: WebSocket):
     greeting_sent = False
     stream_sid = None
     agent_is_speaking = False  # Flag to ignore incoming audio while agent speaks
+    silence_counter = 0  # Track consecutive silence chunks
+    speech_counter = 0  # Track consecutive speech chunks
+    SPEECH_CHUNKS_REQUIRED = 2  # Require 2 consecutive chunks of valid speech (~4 seconds total)
 
     # Get phone number from query params (will be passed by run_app.sh)
     # For now, use a default for testing
@@ -274,6 +357,7 @@ async def media_stream(websocket: WebSocket):
             if data.get('event') == 'start':
                 stream_sid = data['start']['streamSid']
                 logger.info(f"Stream started: {stream_sid}")
+                logger.info("Initializing session after stream start")
 
                 # Initialize session when stream starts (same as original working version)
                 from src.services.profile_service import SeniorProfileService
@@ -355,10 +439,25 @@ async def media_stream(websocket: WebSocket):
                     pcm_data = audioop.ulaw2lin(bytes(audio_buffer), 2)
 
                     # Check if audio has significant volume (filters background TV noise)
-                    if not has_significant_audio(pcm_data, threshold=0.02):
-                        logger.info("Audio below threshold - likely background noise, skipping")
+                    # Threshold 0.05 = requires louder audio = person must be close to phone
+                    if not has_significant_audio(pcm_data, threshold=0.05):
+                        logger.info("🔇 Background noise detected, ignoring")
                         audio_buffer.clear()
+                        speech_counter = 0  # Reset speech counter
+                        silence_counter += 1
                         continue
+
+                    # Valid speech detected - increment counter
+                    speech_counter += 1
+                    silence_counter = 0
+
+                    # Require sustained speech before processing (prevents brief background noises)
+                    if speech_counter < SPEECH_CHUNKS_REQUIRED:
+                        logger.info(f"🎤 Speech detected ({speech_counter}/{SPEECH_CHUNKS_REQUIRED} chunks), continuing...")
+                        # Don't clear buffer yet - accumulate more speech
+                        continue
+
+                    logger.info(f"✅ Sustained speech confirmed, processing...")
 
                     # Convert Twilio mulaw to PCM WAV for Azure
                     temp_audio = "/tmp/caller_audio.wav"
@@ -387,10 +486,13 @@ async def media_stream(websocket: WebSocket):
                             agent.save_message("assistant", ai_response)
 
                             # Send AI response using Azure TTS
+                            agent_is_speaking = True
                             await send_audio_to_twilio(websocket, stream_sid, ai_response)
+                            agent_is_speaking = False
 
-                    # Clear buffer
+                    # Clear buffer and reset counters
                     audio_buffer.clear()
+                    speech_counter = 0
 
             elif data.get('event') == 'stop':
                 logger.info("Stream stopped")
