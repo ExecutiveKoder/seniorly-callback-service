@@ -4,6 +4,8 @@ openai==2.6.1
 azure-cosmos==4.14.0
 azure-search-documents==11.6.0
 redis==7.0.1
+azure-keyvault-secrets==4.9.0
+azure-identity==1.20.0
 
 # Web framework for webhooks
 fastapi==0.115.6

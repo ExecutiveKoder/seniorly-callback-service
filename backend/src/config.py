@@ -1,14 +1,47 @@
 """
 Configuration management for Azure Voice Agent
-Loads environment variables from .env file
+Uses Azure Key Vault for secrets (HIPAA compliant)
+Falls back to .env for non-secret configuration
 """
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from azure.keyvault.secrets import SecretClient
+from azure.identity import DefaultAzureCredential
 
-# Load environment variables from .env file
+# Load environment variables from .env file (for non-secret config)
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
+
+# Initialize Key Vault client for secrets
+KEY_VAULT_NAME = os.getenv('AZURE_KEY_VAULT_NAME', 'seniorly-secrets')
+KEY_VAULT_URL = f"https://{KEY_VAULT_NAME}.vault.azure.net"
+
+try:
+    credential = DefaultAzureCredential()
+    secret_client = SecretClient(vault_url=KEY_VAULT_URL, credential=credential)
+    _key_vault_available = True
+except Exception as e:
+    print(f"Warning: Key Vault not available ({e}). Using fallback to .env")
+    secret_client = None
+    _key_vault_available = False
+
+def get_secret(secret_name: str, fallback_env_var: str = None) -> str:
+    """
+    Get secret from Key Vault with fallback to environment variable.
+    HIPAA compliant - secrets should be in Key Vault in production.
+    """
+    if _key_vault_available and secret_client:
+        try:
+            secret = secret_client.get_secret(secret_name)
+            return secret.value.strip("'\"")
+        except Exception as e:
+            print(f"Warning: Could not get secret '{secret_name}' from Key Vault: {e}")
+
+    # Fallback to environment variable (for local development only)
+    if fallback_env_var:
+        return os.getenv(fallback_env_var, '').strip("'\"")
+    return ''
 
 
 class Config:
@@ -23,28 +56,28 @@ class Config:
     AZURE_OPENAI_API_VERSION = os.getenv('AZURE_OPENAI_API_VERSION', '2025-04-01-preview')
     AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME', 'gpt-5-chat')
     AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT', '').strip("'")
-    AZURE_OPENAI_KEY = os.getenv('AZURE_OPENAI_KEY', '').strip("'")
+    AZURE_OPENAI_KEY = get_secret('AzureOpenAIKey', 'AZURE_OPENAI_KEY')
 
     # Azure Speech Services
     AZURE_SPEECH_ENDPOINT = os.getenv('AZURE_SPEECH_ENDPOINT', '').strip('"')
-    AZURE_SPEECH_KEY = os.getenv('AZURE_SPEECH_KEY', '').strip('"')
+    AZURE_SPEECH_KEY = get_secret('AzureSpeechKey', 'AZURE_SPEECH_KEY')
     AZURE_SPEECH_KEY2 = os.getenv('AZURE_SPEECH_KEY2', '').strip('"')
     AZURE_SPEECH_REGION = os.getenv('AZURE_SPEECH_REGION', 'eastus2')
 
     # Azure AI Search
     AZURE_SEARCH_ENDPOINT = os.getenv('AZURE_SEARCH_ENDPOINT', '').strip("'")
-    AZURE_SEARCH_KEY = os.getenv('AZURE_SEARCH_KEY', '').strip("'")
+    AZURE_SEARCH_KEY = get_secret('AzureSearchKey', 'AZURE_SEARCH_KEY')
     SEARCH_INDEX = os.getenv('SEARCH_INDEX', 'knowledge-base')
 
     # Azure Cosmos DB
     AZURE_COSMOS_ENDPOINT = os.getenv('AZURE_COSMOS_ENDPOINT', '').strip("'")
-    AZURE_COSMOS_KEY = os.getenv('AZURE_COSMOS_KEY', '').strip("'")
+    AZURE_COSMOS_KEY = get_secret('AzureCosmosKey', 'AZURE_COSMOS_KEY')
     COSMOS_DATABASE = os.getenv('COSMOS_DATABASE', 'conversations')
     COSMOS_CONTAINER = os.getenv('COSMOS_CONTAINER', 'sessions')
 
     # Azure Redis Cache
     AZURE_REDIS_HOST = os.getenv('AZURE_REDIS_HOST', '').strip("'")
-    AZURE_REDIS_KEY = os.getenv('AZURE_REDIS_KEY', '').strip("'")
+    AZURE_REDIS_KEY = get_secret('AzureRedisKey', 'AZURE_REDIS_KEY')
     REDIS_PORT = int(os.getenv('REDIS_PORT', '6380'))
     REDIS_SSL = os.getenv('REDIS_SSL', 'true').lower() == 'true'
 
@@ -52,7 +85,7 @@ class Config:
     AZURE_SQL_SERVER = os.getenv('AZURE_SQL_SERVER', '').strip("'")
     AZURE_SQL_DATABASE = os.getenv('AZURE_SQL_DATABASE', '').strip("'")
     AZURE_SQL_USERNAME = os.getenv('AZURE_SQL_USERNAME', '').strip("'")
-    AZURE_SQL_PASSWORD = os.getenv('AZURE_SQL_PASSWORD', '').strip("'")
+    AZURE_SQL_PASSWORD = get_secret('AzureSQLPassword', 'AZURE_SQL_PASSWORD')
 
     # Azure Container Registry
     ACR_LOGIN_SERVER = os.getenv('ACR_LOGIN_SERVER', '').strip("'")
@@ -60,7 +93,7 @@ class Config:
     ACR_PASSWORD = os.getenv('ACR_PASSWORD', '').strip("'")
 
     # Azure Communication Services
-    ACS_CONNECTION_STRING = os.getenv('ACS_CONNECTION_STRING', '').strip("'")
+    ACS_CONNECTION_STRING = get_secret('AzureCommunicationString', 'ACS_CONNECTION_STRING')
     ACS_ENDPOINT = os.getenv('ACS_ENDPOINT', '').strip("'")
     PHONE_NUMBER = os.getenv('PHONE_NUMBER', 'pending')
 
@@ -70,11 +103,11 @@ class Config:
     AWS_CONNECT_INSTANCE_ARN = os.getenv('AWS_CONNECT_INSTANCE_ARN', '').strip("'")
     AWS_CONNECT_PHONE_NUMBER = os.getenv('AWS_CONNECT_PHONE_NUMBER', '').strip("'")
     AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', '').strip("'")
-    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '').strip("'")
+    AWS_SECRET_ACCESS_KEY = get_secret('AWSSecretAccessKey', 'AWS_SECRET_ACCESS_KEY')
 
     # Twilio (Outbound calling with Media Streams)
     TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID', '').strip("'")
-    TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN', '').strip("'")
+    TWILIO_AUTH_TOKEN = get_secret('TwilioAuthToken', 'TWILIO_AUTH_TOKEN')
     TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER', '').strip("'")
 
     # Voice settings
