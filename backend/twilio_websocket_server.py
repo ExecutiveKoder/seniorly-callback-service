@@ -2,7 +2,7 @@
 """
 Twilio WebSocket Server for Real-Time Voice with Azure Speech
 Integrated with SeniorHealthAgent for full conversation management
-Version: 2.3 - Async background initialization (non-blocking WebSocket)
+Version: 2.4 - Reverted to working version (init on 'start' event) + health check + noise filtering
 """
 import sys
 from pathlib import Path
@@ -260,76 +260,10 @@ async def media_stream(websocket: WebSocket):
     greeting_sent = False
     stream_sid = None
     agent_is_speaking = False  # Flag to ignore incoming audio while agent speaks
-    initialization_done = False
 
     # Get phone number from query params (will be passed by run_app.sh)
     # For now, use a default for testing
     phone_number = "289-324-2125"  # TODO: Get from URL params
-
-    # Initialization state
-    senior_name = None
-    senior_id = None
-    context_loaded = False
-    greeting = None
-
-    async def do_initialization():
-        """Initialize session in background without blocking WebSocket"""
-        nonlocal senior_name, senior_id, context_loaded, greeting, initialization_done
-
-        logger.info("=== STARTING BACKGROUND INITIALIZATION ===")
-        from src.services.profile_service import SeniorProfileService
-        from src.senior_health_prompt import SENIOR_HEALTH_SYSTEM_PROMPT
-
-        try:
-            # Look up senior profile
-            profile_service = SeniorProfileService(
-                endpoint=config.AZURE_COSMOS_ENDPOINT,
-                key=config.AZURE_COSMOS_KEY,
-                database_name=config.COSMOS_DATABASE
-            )
-            logger.info(f"Looking up profile for phone: {phone_number}")
-            profile = profile_service.get_senior_by_phone(phone_number)
-            if profile:
-                senior_id = profile['seniorId']
-                full_name = profile['fullName']
-                senior_name = full_name.split()[0] if full_name else None
-                logger.info(f"Found profile (ID: {senior_id[:8]}...)")
-            else:
-                logger.warning(f"No profile found for {phone_number}")
-        except Exception as e:
-            logger.error(f"Could not get senior profile: {e}")
-
-        # Load senior context (call history)
-        context_loaded = agent._load_senior_context(phone_number)
-
-        # Start session with name and ID
-        agent.start_new_session(senior_name=senior_name, senior_id=senior_id)
-        logger.info(f"Started session {agent.current_session_id}")
-
-        # Update system prompt with senior's name
-        ai_name = config.get_ai_name()
-        if senior_name:
-            personalized_prompt = SENIOR_HEALTH_SYSTEM_PROMPT.replace("[Name]", senior_name).replace("[Your AI Name]", ai_name)
-            personalized_prompt += f"\n\nREMINDER: The senior's name is {senior_name}. Always use their actual name, never use placeholders like [Name]."
-            agent.openai.set_system_prompt(personalized_prompt)
-        else:
-            generic_prompt = SENIOR_HEALTH_SYSTEM_PROMPT.replace("[Name]", "them").replace("[Your AI Name]", ai_name)
-            agent.openai.set_system_prompt(generic_prompt)
-
-        # Generate personalized greeting (EXACT same logic as local)
-        if context_loaded and senior_name:
-            greeting = f"Hello {senior_name}! This is {ai_name} calling from Seniorly. It's good to talk with you again today. How are you doing?"
-        elif senior_name:
-            greeting = f"Hello {senior_name}! This is {ai_name} calling from Seniorly. How are you doing today?"
-        else:
-            greeting = f"Hello! This is {ai_name} calling from Seniorly. How are you doing today?"
-
-        agent.save_message("assistant", greeting)
-        initialization_done = True
-        logger.info("=== BACKGROUND INITIALIZATION COMPLETE ===")
-
-    # Start initialization task in background
-    init_task = asyncio.create_task(do_initialization())
 
     try:
         # Main loop - receive audio from caller
@@ -341,11 +275,57 @@ async def media_stream(websocket: WebSocket):
                 stream_sid = data['start']['streamSid']
                 logger.info(f"Stream started: {stream_sid}")
 
-                # Wait for initialization to complete (if not already done)
-                if not initialization_done:
-                    logger.info("Waiting for initialization to complete...")
-                    await init_task
-                    logger.info("Initialization complete, sending greeting")
+                # Initialize session when stream starts (same as original working version)
+                from src.services.profile_service import SeniorProfileService
+                from src.senior_health_prompt import SENIOR_HEALTH_SYSTEM_PROMPT
+
+                # Look up senior profile
+                senior_name = None
+                senior_id = None
+                context_loaded = False
+
+                try:
+                    profile_service = SeniorProfileService(
+                        endpoint=config.AZURE_COSMOS_ENDPOINT,
+                        key=config.AZURE_COSMOS_KEY,
+                        database_name=config.COSMOS_DATABASE
+                    )
+                    logger.info(f"Looking up profile for phone: {phone_number}")
+                    profile = profile_service.get_senior_by_phone(phone_number)
+                    if profile:
+                        senior_id = profile['seniorId']
+                        full_name = profile['fullName']
+                        senior_name = full_name.split()[0] if full_name else None
+                        logger.info(f"Found profile (ID: {senior_id[:8]}...)")
+                except Exception as e:
+                    logger.error(f"Could not get senior profile: {e}")
+
+                # Load senior context (call history)
+                context_loaded = agent._load_senior_context(phone_number)
+
+                # Start session with name and ID
+                agent.start_new_session(senior_name=senior_name, senior_id=senior_id)
+                logger.info(f"Started session {agent.current_session_id}")
+
+                # Update system prompt with senior's name
+                ai_name = config.get_ai_name()
+                if senior_name:
+                    personalized_prompt = SENIOR_HEALTH_SYSTEM_PROMPT.replace("[Name]", senior_name).replace("[Your AI Name]", ai_name)
+                    personalized_prompt += f"\n\nREMINDER: The senior's name is {senior_name}. Always use their actual name, never use placeholders like [Name]."
+                    agent.openai.set_system_prompt(personalized_prompt)
+                else:
+                    generic_prompt = SENIOR_HEALTH_SYSTEM_PROMPT.replace("[Name]", "them").replace("[Your AI Name]", ai_name)
+                    agent.openai.set_system_prompt(generic_prompt)
+
+                # Generate personalized greeting (EXACT same logic as local)
+                if context_loaded and senior_name:
+                    greeting = f"Hello {senior_name}! This is {ai_name} calling from Seniorly. It's good to talk with you again today. How are you doing?"
+                elif senior_name:
+                    greeting = f"Hello {senior_name}! This is {ai_name} calling from Seniorly. How are you doing today?"
+                else:
+                    greeting = f"Hello! This is {ai_name} calling from Seniorly. How are you doing today?"
+
+                agent.save_message("assistant", greeting)
 
                 # Send personalized greeting immediately
                 if not greeting_sent and greeting:
