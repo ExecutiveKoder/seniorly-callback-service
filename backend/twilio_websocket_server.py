@@ -322,8 +322,8 @@ async def media_stream(websocket: WebSocket):
 
     # Adaptive noise floor learning
     ambient_noise_samples = []
-    ambient_noise_threshold = 0.015  # Start with default
-    learning_ambient = True  # Learn ambient noise for first 5 chunks
+    ambient_noise_threshold = 0.025  # Start with default (fixed value, no adaptation)
+    learning_ambient = False  # DISABLED - use fixed threshold
 
     # Get phone number from query params (will be passed by run_app.sh)
     # For now, use a default for testing
