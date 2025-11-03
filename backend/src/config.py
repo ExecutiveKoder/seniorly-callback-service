@@ -117,6 +117,12 @@ class Config:
     @staticmethod
     def get_ai_name() -> str:
         """Extract AI name from voice setting"""
+        # First check if AGENT_NAME is explicitly set
+        explicit_name = os.getenv('AGENT_NAME', '').strip()
+        if explicit_name:
+            return explicit_name
+
+        # Otherwise extract from voice name
         voice_name = Config.SPEECH_VOICE_NAME
 
         # Extract the name from the voice (e.g., "en-US-JasonNeural" -> "Jason")
@@ -130,6 +136,8 @@ class Config:
             return 'Guy'
         elif 'Aria' in voice_name:
             return 'Aria'
+        elif 'Ava' in voice_name:
+            return 'Ava'
         elif 'Davis' in voice_name:
             return 'Davis'
         elif 'Jane' in voice_name:
